@@ -6,24 +6,24 @@ def main():
     print("Project Manager")
     print("----------------")
 
-    print(f"Templates: {TEMPLATES_DIR}")
-    print(f"Projects: {PROJECTS_DIR}")
+    print(f"Plantillas: {TEMPLATES_DIR}")
+    print(f"Proyectos: {PROJECTS_DIR}")
 
-    print("\nAvailable templates:")
+    print("\nPlantillas disponibles:")
 
     template_manager = TemplateManager(TEMPLATES_DIR)
     templates = template_manager.discover_templates()
 
     if not templates:
-        print("No templates found.")
+        print("No se encontraron plantillas.")
         return
 
     for index, template in enumerate(templates, start=1):
         print(f"\n{index}. {template['name']}")
-        print(f"   Language: {template['language']}")
-        print(f"   Description: {template['description']}")
-        print(f"   Version: {template['version']}")
-        print(f"   Path: {template['path']}")
+        print(f"   Lenguaje: {template['language']}")
+        print(f"   Descripción: {template['description']}")
+        print(f"   Versión: {template['version']}")
+        print(f"   Ruta: {template['path']}")
 
 
 if __name__ == "__main__":
