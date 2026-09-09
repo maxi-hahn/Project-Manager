@@ -140,11 +140,56 @@ class ProjectCreator:
 
             print(f"→ Instalando/configurando {tool['name']}...")
 
+            # Copiar archivos de configuración si existen
+            self._copy_tool_files(project_path, tool)
+
+            # Ejecutar comandos de la Tool
             for action in tool.get("commands", []):
 
                 self._run_command(project_path, action["command"])
 
             print(f"✓ {tool['name']} configurado.")
+
+    # ========================================================
+    # COPIAR ARCHIVOS DE CONFIGURACIÓN DE TOOLS
+    # ========================================================
+    # Copia los archivos de configuración que cada Tool
+    # puede incluir en su carpeta files/.
+    #
+    # Por ejemplo:
+    #
+    # TOOLS/PYTHON/RUFF/files/.ruff.toml
+    #
+    # se copia al proyecto como:
+    #
+    # proyecto/.ruff.toml
+    # ========================================================
+
+    def _copy_tool_files(self, project_path: Path, tool: dict):
+
+        tool_path = Path(tool.get("path", ""))
+        files_dir = tool_path / "files"
+
+        if not files_dir.exists():
+            return
+
+        print(f"→ Copiando archivos de {tool['name']}...")
+
+        for file_path in files_dir.rglob("*"):
+
+            if file_path.is_file():
+
+                # Calcular ruta relativa al files/
+                relative_path = file_path.relative_to(files_dir)
+                destination = project_path / relative_path
+
+                # Crear directorio destino si no existe
+                destination.parent.mkdir(parents=True, exist_ok=True)
+
+                shutil.copy2(file_path, destination)
+                print(f"  + {relative_path}")
+
+        print(f"✓ Archivos de {tool['name']} copiados.")
 
     # ========================================================
     # EJECUTAR UN COMANDO
