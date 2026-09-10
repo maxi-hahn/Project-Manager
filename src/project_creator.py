@@ -51,7 +51,11 @@ class ProjectCreator:
 
             print("\n→ Copiando plantilla...")
 
-            shutil.copytree(template_path, project_path)
+            shutil.copytree(
+                template_path,
+                project_path,
+                ignore=shutil.ignore_patterns("template.json")
+            )
 
             print("✓ Plantilla copiada.")
 
@@ -79,20 +83,26 @@ class ProjectCreator:
             print("✓ Entorno virtual creado.")
 
             # ------------------------------------------------
-            # 4. Ejecutar Tools
+            # 4. Instalar dependencias del template
+            # ------------------------------------------------
+
+            self._install_template_dependencies(project_path)
+
+            # ------------------------------------------------
+            # 5. Ejecutar Tools
             # ------------------------------------------------
 
             if tools:
                 self._run_tools(project_path, tools)
 
                 # --------------------------------------------
-                # 5. Actualizar requirements.txt
+                # 6. Actualizar requirements.txt
                 # --------------------------------------------
 
                 self._update_requirements(project_path, tools)
 
             # ------------------------------------------------
-            # 6. Verificar entorno virtual
+            # 7. Verificar entorno virtual
             # ------------------------------------------------
 
             print("→ Verificando entorno virtual...")
@@ -126,6 +136,39 @@ class ProjectCreator:
         subprocess.run(
             [sys.executable, "-m", "venv", str(project_path / ".venv")], check=True
         )
+
+
+    # ========================================================
+    # INSTALAR DEPENDENCIAS DEL TEMPLATE
+    # ========================================================
+    # Instala las dependencias declaradas en el archivo
+    # requirements.txt del template dentro del .venv.
+    #
+    # Esto deja el proyecto listo para ejecutarse sin que
+    # el usuario tenga que instalar nada manualmente.
+    # ========================================================
+
+    def _install_template_dependencies(self, project_path: Path):
+
+        requirements_file = project_path / "requirements.txt"
+
+        if not requirements_file.exists():
+            return
+
+        # Verificar que el archivo tenga contenido real
+        content = requirements_file.read_text(encoding="utf-8").strip()
+
+        if not content:
+            return
+
+        print("→ Instalando dependencias del template...")
+
+        self._run_command(
+            project_path,
+            ["python", "-m", "pip", "install", "-r", "requirements.txt"],
+        )
+
+        print("✓ Dependencias del template instaladas.")
 
     # ========================================================
     # EJECUTAR TOOLS
