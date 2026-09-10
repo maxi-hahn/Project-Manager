@@ -34,6 +34,7 @@ class ProjectCreator:
         project_name: str,
         description: str,
         tools: list[dict] | None = None,
+        features: list[dict] | None = None,
     ) -> Path:
 
         project_path = self.projects_dir / project_name
@@ -95,14 +96,22 @@ class ProjectCreator:
             if tools:
                 self._run_tools(project_path, tools)
 
-                # --------------------------------------------
-                # 6. Actualizar requirements.txt
-                # --------------------------------------------
+            # ------------------------------------------------
+            # 6. Copiar Features
+            # ------------------------------------------------
 
+            if features:
+                self._run_features(project_path, features)
+
+            # ------------------------------------------------
+            # 7. Actualizar requirements.txt
+            # ------------------------------------------------
+
+            if tools:
                 self._update_requirements(project_path, tools)
 
             # ------------------------------------------------
-            # 7. Verificar entorno virtual
+            # 8. Verificar entorno virtual
             # ------------------------------------------------
 
             print("→ Verificando entorno virtual...")
@@ -192,6 +201,25 @@ class ProjectCreator:
                 self._run_command(project_path, action["command"])
 
             print(f"✓ {tool['name']} configurado.")
+
+    # ========================================================
+    # EJECUTAR FEATURES
+    # ========================================================
+    # Copia los archivos de cada Feature seleccionada.
+    #
+    # A diferencia de las Tools, las Features solo copian
+    # archivos. No instalan ni ejecutan comandos (por ahora).
+    # ========================================================
+
+    def _run_features(self, project_path: Path, features: list[dict]):
+
+        for feature in features:
+
+            print(f"→ Copiando feature {feature['name']}...")
+
+            self._copy_tool_files(project_path, feature) # No es un error, reutilizamos copy_TOOL por que hace lo mismo, en un futuro puede llegar a cambiar 
+
+            print(f"✓ {feature['name']} copiada.")
 
     # ========================================================
     # COPIAR ARCHIVOS DE CONFIGURACIÓN DE TOOLS

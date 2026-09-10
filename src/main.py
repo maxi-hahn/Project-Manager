@@ -1,9 +1,15 @@
-from config import TEMPLATES_DIR, PROJECTS_DIR, TOOLS_DIR
+from config import (
+    TEMPLATES_DIR,
+    PROJECTS_DIR,
+    TOOLS_DIR,
+    FEATURES_DIR,
+    # ENVIRONMENTS_DIR,
+    # TECHNOLOGIES_DIR,
+)
 
 from src.template_manager import TemplateManager
-from src.tool_manager import ToolManager
+from src.resource_manager import ResourceManager
 from src.project_creator import ProjectCreator
-
 
 # ============================================================
 # MENÚ PRINCIPAL
@@ -12,6 +18,7 @@ from src.project_creator import ProjectCreator
 # Muestra las opciones disponibles y mantiene el programa
 # funcionando hasta que el usuario elige salir.
 # ============================================================
+
 
 def main():
     while True:
@@ -52,6 +59,7 @@ def main():
 # Esa responsabilidad pertenece a ProjectCreator.
 # ============================================================
 
+
 def create_project():
 
     # --------------------------------------------------------
@@ -78,9 +86,7 @@ def create_project():
     # --------------------------------------------------------
 
     while True:
-        option = input(
-            "\nSeleccioná una plantilla (0 para volver): "
-        ).strip()
+        option = input("\nSeleccioná una plantilla (0 para volver): ").strip()
 
         if option == "0":
             return
@@ -107,9 +113,8 @@ def create_project():
     # Pytest → instala pytest dentro del .venv.
     # --------------------------------------------------------
 
-    tool_manager = ToolManager(TOOLS_DIR)
-    tools = tool_manager.discover_tools()
-
+    tool_manager = ResourceManager(TOOLS_DIR, "tool.json")
+    tools = tool_manager.discover()
     selected_tools = []
 
     if tools:
@@ -129,9 +134,7 @@ def create_project():
         # ----------------------------------------------------
 
         while True:
-            option = input(
-                "\nSeleccioná una tool (0 para continuar): "
-            ).strip()
+            option = input("\nSeleccioná una tool (0 para continuar): ").strip()
 
             if option == "0":
                 break
@@ -147,6 +150,60 @@ def create_project():
                         print(f"✓ {tool['name']} seleccionada.")
                     else:
                         print("Esa tool ya fue seleccionada.")
+
+                else:
+                    print("Opción no válida.")
+
+            except ValueError:
+                print("Ingresá un número válido.")
+
+    # --------------------------------------------------------
+    # Buscar Features disponibles
+    # --------------------------------------------------------
+    # Las Features son módulos de código reutilizable que
+    # se copian al proyecto. Solo se muestran las compatibles
+    # con el template seleccionado.
+    # --------------------------------------------------------
+
+    feature_manager = ResourceManager(FEATURES_DIR, "feature.json")
+    features = feature_manager.discover()
+
+    # Filtrar por compatibilidad con el template
+    compatible_features = [
+        feature
+        for feature in features
+        if selected_template["name"].lower().replace(" ", "_")
+        in feature.get("compatible_with", [])
+    ]
+
+    selected_features = []
+
+    if compatible_features:
+        print("\nFeatures disponibles:")
+
+        for index, feature in enumerate(compatible_features, start=1):
+            print(f"{index}. {feature['name']}")
+            print(f"   {feature['description']}")
+
+        print("0. Ninguna")
+
+        while True:
+            option = input("\nSeleccioná una feature (0 para continuar): ").strip()
+
+            if option == "0":
+                break
+
+            try:
+                option = int(option)
+
+                if 1 <= option <= len(compatible_features):
+                    feature = compatible_features[option - 1]
+
+                    if feature not in selected_features:
+                        selected_features.append(feature)
+                        print(f"✓ {feature['name']} seleccionada.")
+                    else:
+                        print("Esa feature ya fue seleccionada.")
 
                 else:
                     print("Opción no válida.")
@@ -177,8 +234,7 @@ def create_project():
     # --------------------------------------------------------
 
     description = get_required_input(
-        "\nDescripción: ",
-        "La descripción no puede estar vacía."
+        "\nDescripción: ", "La descripción no puede estar vacía."
     )
 
     if description is None:
@@ -199,7 +255,8 @@ def create_project():
             template_path=selected_template["path"],
             project_name=project_name,
             description=description,
-            tools=selected_tools
+            tools=selected_tools,
+            features=selected_features,
         )
 
         print("\n¡Proyecto creado correctamente!")
@@ -229,13 +286,10 @@ def create_project():
 # El usuario elige en cuál de ellas crear el nuevo proyecto.
 # ============================================================
 
+
 def select_project_location():
 
-    locations = [
-        folder
-        for folder in PROJECTS_DIR.iterdir()
-        if folder.is_dir()
-    ]
+    locations = [folder for folder in PROJECTS_DIR.iterdir() if folder.is_dir()]
 
     if not locations:
         print("\nNo se encontraron ubicaciones de proyectos.")
@@ -273,12 +327,11 @@ def select_project_location():
 # caracteres que Windows no permite en nombres de carpetas.
 # ============================================================
 
+
 def get_project_name():
 
     while True:
-        project_name = input(
-            "\nNombre del proyecto (0 para volver): "
-        ).strip()
+        project_name = input("\nNombre del proyecto (0 para volver): ").strip()
 
         if project_name == "0":
             return None
@@ -287,10 +340,7 @@ def get_project_name():
             print("El nombre del proyecto no puede estar vacío.")
             continue
 
-        if any(
-            character in project_name
-            for character in '<>:"/\\|?*'
-        ):
+        if any(character in project_name for character in '<>:"/\\|?*'):
             print("El nombre contiene caracteres no válidos.")
             continue
 
@@ -305,6 +355,7 @@ def get_project_name():
 #
 # También permite escribir 0 para cancelar y volver atrás.
 # ============================================================
+
 
 def get_required_input(message, error_message):
 
