@@ -3,8 +3,7 @@ from config import (
     PROJECTS_DIR,
     TOOLS_DIR,
     FEATURES_DIR,
-    # ENVIRONMENTS_DIR,
-    # TECHNOLOGIES_DIR,
+    ENVIRONMENTS_DIR,
 )
 
 from src.template_manager import TemplateManager
@@ -212,6 +211,60 @@ def create_project():
                 print("Ingresá un número válido.")
 
     # --------------------------------------------------------
+    # Buscar Environments disponibles
+    # --------------------------------------------------------
+    # Los Environments definen cómo se ejecuta el proyecto.
+    # Solo se muestran los compatibles con el template.
+    # --------------------------------------------------------
+
+    env_manager = ResourceManager(ENVIRONMENTS_DIR, "environment.json")
+    environments = env_manager.discover()
+
+    # Filtrar por lenguaje del template
+    template_id = selected_template["name"].lower().replace(" ", "_")
+
+    compatible_environments = [
+        env
+        for env in environments
+        if template_id in env.get("compatible_with", [])
+    ]
+
+    selected_environments = []
+
+    if compatible_environments:
+        print("\nEnvironments disponibles:")
+
+        for index, env in enumerate(compatible_environments, start=1):
+            print(f"{index}. {env['name']}")
+            print(f"   {env['description']}")
+
+        print("0. Ninguno")
+
+        while True:
+            option = input("\nSeleccioná un environment (0 para continuar): ").strip()
+
+            if option == "0":
+                break
+
+            try:
+                option = int(option)
+
+                if 1 <= option <= len(compatible_environments):
+                    env = compatible_environments[option - 1]
+
+                    if env not in selected_environments:
+                        selected_environments.append(env)
+                        print(f"✓ {env['name']} seleccionado.")
+                    else:
+                        print("Ese environment ya fue seleccionado.")
+
+                else:
+                    print("Opción no válida.")
+
+            except ValueError:
+                print("Ingresá un número válido.")
+
+    # --------------------------------------------------------
     # Seleccionar ubicación del proyecto
     # --------------------------------------------------------
 
@@ -257,6 +310,8 @@ def create_project():
             description=description,
             tools=selected_tools,
             features=selected_features,
+            environments=selected_environments,
+            template_language=selected_template.get("language", "").lower(),
         )
 
         print("\n¡Proyecto creado correctamente!")

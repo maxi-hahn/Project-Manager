@@ -35,6 +35,8 @@ class ProjectCreator:
         description: str,
         tools: list[dict] | None = None,
         features: list[dict] | None = None,
+        environments: list[dict] | None = None,
+        template_language: str = "",
     ) -> Path:
 
         project_path = self.projects_dir / project_name
@@ -60,8 +62,49 @@ class ProjectCreator:
 
             print("✓ Plantilla copiada.")
 
+                        # ------------------------------------------------
+            # 2. Crear entorno virtual
             # ------------------------------------------------
-            # 2. Reemplazar configuración
+
+            print("→ Creando entorno virtual (.venv)...")
+
+            self._create_virtual_environment(project_path)
+
+            print("✓ Entorno virtual creado.")
+
+            # ------------------------------------------------
+            # 3. Instalar dependencias del template
+            # ------------------------------------------------
+
+            self._install_template_dependencies(project_path)
+
+            # ------------------------------------------------
+            # 4. Ejecutar Tools
+            # ------------------------------------------------
+
+            if tools:
+                self._run_tools(project_path, tools)
+
+            # ------------------------------------------------
+            # 5. Copiar Features
+            # ------------------------------------------------
+
+            if features:
+                self._run_features(project_path, features)
+
+            # ------------------------------------------------
+            # 6. Copiar Environments
+            # ------------------------------------------------
+
+            if environments:
+                self._run_environments(
+                    project_path,
+                    environments,
+                    template_language,
+                )
+
+            # ------------------------------------------------
+            # 7. Reemplazar placeholders (después de copiar todo)
             # ------------------------------------------------
 
             print("→ Generando configuración...")
@@ -74,44 +117,14 @@ class ProjectCreator:
             print("✓ Configuración generada.")
 
             # ------------------------------------------------
-            # 3. Crear entorno virtual
-            # ------------------------------------------------
-
-            print("→ Creando entorno virtual (.venv)...")
-
-            self._create_virtual_environment(project_path)
-
-            print("✓ Entorno virtual creado.")
-
-            # ------------------------------------------------
-            # 4. Instalar dependencias del template
-            # ------------------------------------------------
-
-            self._install_template_dependencies(project_path)
-
-            # ------------------------------------------------
-            # 5. Ejecutar Tools
-            # ------------------------------------------------
-
-            if tools:
-                self._run_tools(project_path, tools)
-
-            # ------------------------------------------------
-            # 6. Copiar Features
-            # ------------------------------------------------
-
-            if features:
-                self._run_features(project_path, features)
-
-            # ------------------------------------------------
-            # 7. Actualizar requirements.txt
+            # 8. Actualizar requirements.txt
             # ------------------------------------------------
 
             if tools:
                 self._update_requirements(project_path, tools)
 
             # ------------------------------------------------
-            # 8. Verificar entorno virtual
+            # 9. Verificar entorno virtual
             # ------------------------------------------------
 
             print("→ Verificando entorno virtual...")
@@ -220,6 +233,61 @@ class ProjectCreator:
             self._copy_tool_files(project_path, feature) # No es un error, reutilizamos copy_TOOL por que hace lo mismo, en un futuro puede llegar a cambiar 
 
             print(f"✓ {feature['name']} copiada.")
+
+
+        # ========================================================
+    # EJECUTAR ENVIRONMENTS
+    # ========================================================
+    # Copia los archivos de cada Environment seleccionado.
+    #
+    # Algunos archivos son genéricos (docker-compose.yml) y
+    # otros son específicos por lenguaje (Dockerfile).
+    #
+    # El campo files_by_language indica qué archivo copiar
+    # según el lenguaje del template seleccionado.
+    # ========================================================
+
+    def _run_environments(
+        self,
+        project_path: Path,
+        environments: list[dict],
+        template_language: str,
+    ):
+
+        for env in environments:
+
+            print(f"→ Configurando {env['name']}...")
+
+            env_path = Path(env.get("path", ""))
+
+            # ------------------------------------------------
+            # Copiar archivos genéricos (files/)
+            # ------------------------------------------------
+
+            self._copy_tool_files(project_path, env)
+
+            # ------------------------------------------------
+            # Copiar archivos específicos por lenguaje
+            # ------------------------------------------------
+
+            files_by_language = env.get("files_by_language", {})
+            language_file = files_by_language.get(template_language)
+
+            if language_file:
+
+                source = env_path / language_file
+
+                if source.exists():
+
+                    destination = project_path / Path(language_file).name
+
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+
+                    shutil.copy2(source, destination)
+
+                    print(f"  + {destination.name}")
+
+            print(f"✓ {env['name']} configurado.")
 
     # ========================================================
     # COPIAR ARCHIVOS DE CONFIGURACIÓN DE TOOLS
