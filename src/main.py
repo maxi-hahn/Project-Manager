@@ -9,6 +9,10 @@ from config import (
 from src.template_manager import TemplateManager
 from src.resource_manager import ResourceManager
 from src.project_creator import ProjectCreator
+from src.logic.filters import (
+    filter_features_by_template,
+    filter_environments_by_template,
+)
 
 # ============================================================
 # MENÚ PRINCIPAL
@@ -168,12 +172,7 @@ def create_project():
     features = feature_manager.discover()
 
     # Filtrar por compatibilidad con el template
-    compatible_features = [
-        feature
-        for feature in features
-        if selected_template["name"].lower().replace(" ", "_")
-        in feature.get("compatible_with", [])
-    ]
+    compatible_features = filter_features_by_template(features, selected_template)
 
     selected_features = []
 
@@ -220,14 +219,10 @@ def create_project():
     env_manager = ResourceManager(ENVIRONMENTS_DIR, "environment.json")
     environments = env_manager.discover()
 
-    # Filtrar por lenguaje del template
-    template_id = selected_template["name"].lower().replace(" ", "_")
-
-    compatible_environments = [
-        env
-        for env in environments
-        if template_id in env.get("compatible_with", [])
-    ]
+    # Filtrar por compatibilidad con el template
+    compatible_environments = filter_environments_by_template(
+        environments, selected_template
+    )
 
     selected_environments = []
 
