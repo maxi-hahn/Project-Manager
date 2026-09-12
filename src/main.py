@@ -8,7 +8,6 @@ from config import (
 
 from src.template_manager import TemplateManager
 from src.resource_manager import ResourceManager
-from src.project_creator import ProjectCreator
 from src.logic.filters import (
     filter_features_by_template,
     filter_environments_by_template,
@@ -17,6 +16,7 @@ from src.logic.validators import (
     validate_project_name,
     validate_required_field,
 )
+from src.logic.project_builder import build_project
 
 # ============================================================
 # MENÚ PRINCIPAL
@@ -300,28 +300,22 @@ def create_project():
     # placeholders, crear el .venv y ejecutar las Tools.
     # --------------------------------------------------------
 
-    project_creator = ProjectCreator(project_location)
+    result = build_project(
+        projects_dir=project_location,
+        template_path=selected_template["path"],
+        project_name=project_name,
+        description=description,
+        tools=selected_tools,
+        features=selected_features,
+        environments=selected_environments,
+        template_language=selected_template.get("language", "").lower(),
+    )
 
-    try:
-        project_path = project_creator.create_project(
-            template_path=selected_template["path"],
-            project_name=project_name,
-            description=description,
-            tools=selected_tools,
-            features=selected_features,
-            environments=selected_environments,
-            template_language=selected_template.get("language", "").lower(),
-        )
-
+    if result.success:
         print("\n¡Proyecto creado correctamente!")
-        print(f"Ruta: {project_path}")
-
-    except FileExistsError as error:
-        print(f"\n{error}")
-
-    except OSError as error:
-        print("\nNo se pudo crear el proyecto.")
-        print(f"Detalle: {error}")
+        print(f"Ruta: {result.project_path}")
+    else:
+        print(f"\n{result.error_message}")
 
 
 # ============================================================
