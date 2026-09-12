@@ -13,6 +13,10 @@ from src.logic.filters import (
     filter_features_by_template,
     filter_environments_by_template,
 )
+from src.logic.validators import (
+    validate_project_name,
+    validate_required_field,
+)
 
 # ============================================================
 # MENÚ PRINCIPAL
@@ -386,12 +390,9 @@ def get_project_name():
         if project_name == "0":
             return None
 
-        if not project_name:
-            print("El nombre del proyecto no puede estar vacío.")
-            continue
-
-        if any(character in project_name for character in '<>:"/\\|?*'):
-            print("El nombre contiene caracteres no válidos.")
+        is_valid, error_message = validate_project_name(project_name)
+        if not is_valid:
+            print(error_message)
             continue
 
         return project_name
@@ -416,8 +417,9 @@ def get_required_input(message, error_message):
             print("\nVolviendo...")
             return None
 
-        if not value:
-            print(error_message)
+        is_valid, err = validate_required_field(value, error_message)
+        if not is_valid:
+            print(err)
             continue
 
         return value
