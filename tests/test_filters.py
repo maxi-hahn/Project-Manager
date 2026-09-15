@@ -39,3 +39,12 @@ def test_filter_tools_by_language():
     result = filter_tools_by_language(tools, "python")
     assert len(result) == 2
     assert [t["name"] for t in result] == ["pytest", "ruff"]
+
+
+def test_filter_tools_by_language_no_match():
+    tools = [
+        {"name": "pytest", "language": "Python"},
+        {"name": "ruff", "language": "python"},
+    ]
+    result = filter_tools_by_language(tools, "ruby")
+    assert result == []

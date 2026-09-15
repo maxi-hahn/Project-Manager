@@ -1,7 +1,20 @@
+import os
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+# Directories to skip during placeholder replacement (e.g. dependencies, build artifacts, venvs)
+SKIP_DIRECTORIES = {
+    "node_modules",
+    ".venv",
+    "venv",
+    "env",
+    ".git",
+    "dist",
+    "build",
+    "__pycache__",
+}
 
 
 class ProjectCreator:
@@ -37,6 +50,7 @@ class ProjectCreator:
         features: list[dict] | None = None,
         environments: list[dict] | None = None,
         template_language: str = "",
+        template_runtime: str = "python",
     ) -> Path:
 
         project_path = self.projects_dir / project_name
@@ -63,37 +77,32 @@ class ProjectCreator:
             print("✓ Plantilla copiada.")
 
                         # ------------------------------------------------
-            # 2. Crear entorno virtual
+            # 2. Configurar runtime (varía según el lenguaje)
             # ------------------------------------------------
 
-            print("→ Creando entorno virtual (.venv)...")
-
-            self._create_virtual_environment(project_path)
-
-            print("✓ Entorno virtual creado.")
-
-            # ------------------------------------------------
-            # 3. Instalar dependencias del template
-            # ------------------------------------------------
-
-            self._install_template_dependencies(project_path)
+            if template_runtime == "python":
+                self._setup_python_runtime(project_path, tools)
+            elif template_runtime == "node":
+                self._setup_node_runtime(project_path)
+            else:
+                print(f"→ Runtime '{template_runtime}' sin configuración específica.")
 
             # ------------------------------------------------
-            # 4. Ejecutar Tools
+            # 3. Ejecutar Tools
             # ------------------------------------------------
 
             if tools:
                 self._run_tools(project_path, tools)
 
             # ------------------------------------------------
-            # 5. Copiar Features
+            # 4. Copiar Features
             # ------------------------------------------------
 
             if features:
                 self._run_features(project_path, features)
 
             # ------------------------------------------------
-            # 6. Copiar Environments
+            # 5. Copiar Environments
             # ------------------------------------------------
 
             if environments:
@@ -104,7 +113,7 @@ class ProjectCreator:
                 )
 
             # ------------------------------------------------
-            # 7. Reemplazar placeholders (después de copiar todo)
+            # 6. Reemplazar placeholders (después de copiar todo)
             # ------------------------------------------------
 
             print("→ Generando configuración...")
@@ -117,26 +126,13 @@ class ProjectCreator:
             print("✓ Configuración generada.")
 
             # ------------------------------------------------
-            # 8. Actualizar requirements.txt
+            # 7. Actualizar requirements.txt (solo Python)
             # ------------------------------------------------
 
-            if tools:
+            if template_runtime == "python" and tools:
                 self._update_requirements(project_path, tools)
 
-            # ------------------------------------------------
-            # 9. Verificar entorno virtual
-            # ------------------------------------------------
-
-            print("→ Verificando entorno virtual...")
-
-            self._run_command(
-                project_path,
-                [str(project_path / ".venv" / "Scripts" / "python.exe"), "--version"],
-            )
-
-            print("✓ Entorno virtual verificado.")
-
-        except OSError:
+        except (OSError, subprocess.CalledProcessError):
 
             # Si algo falla, eliminamos el proyecto incompleto.
             if project_path.exists():
@@ -158,6 +154,75 @@ class ProjectCreator:
         subprocess.run(
             [sys.executable, "-m", "venv", str(project_path / ".venv")], check=True
         )
+
+
+    # ========================================================
+    # CONFIGURAR RUNTIME PYTHON
+    # ========================================================
+    # Pasos específicos para proyectos Python:
+    #   1. Crear .venv
+    #   2. Instalar dependencias del template
+    #   3. Verificar el entorno
+    # ========================================================
+
+    def _setup_python_runtime(self, project_path: Path, tools: list[dict] | None):
+
+        # ------------------------------------------------
+        # 1. Crear entorno virtual
+        # ------------------------------------------------
+
+        print("→ Creando entorno virtual (.venv)...")
+
+        self._create_virtual_environment(project_path)
+
+        print("✓ Entorno virtual creado.")
+
+        # ------------------------------------------------
+        # 2. Instalar dependencias del template
+        # ------------------------------------------------
+
+        self._install_template_dependencies(project_path)
+
+        # ------------------------------------------------
+        # 3. Verificar entorno virtual
+        # ------------------------------------------------
+
+        print("→ Verificando entorno virtual...")
+
+        self._run_command(
+            project_path,
+            [str(project_path / ".venv" / "Scripts" / "python.exe"), "--version"],
+        )
+
+        print("✓ Entorno virtual verificado.")
+
+    # ========================================================
+    # CONFIGURAR RUNTIME NODE
+    # ========================================================
+    # Pasos específicos para proyectos Node/JavaScript:
+    #   1. Ejecutar npm install
+    #
+    # No se crea .venv porque Node usa node_modules/.
+    # ========================================================
+
+    def _setup_node_runtime(self, project_path: Path):
+
+        # ------------------------------------------------
+        # 1. Instalar dependencias con npm
+        # ------------------------------------------------
+
+        print("→ Instalando dependencias con npm...")
+        print("  (esto puede tardar unos minutos la primera vez)")
+
+        subprocess.run(
+            ["npm", "install"],
+            cwd=project_path,
+            check=True,
+            shell=True,  # Necesario en Windows para encontrar npm
+        )
+
+        print("✓ Dependencias instaladas.")
+
 
 
     # ========================================================
@@ -372,22 +437,24 @@ class ProjectCreator:
 
     def _replace_placeholders(self, project_path: Path, replacements: dict[str, str]):
 
-        for file_path in project_path.rglob("*"):
+        # Skip heavy dependency, build, and version control directories to avoid scanning thousands of unnecessary files
+        for root, dirs, files in os.walk(project_path):
+            dirs[:] = [d for d in dirs if d not in SKIP_DIRECTORIES]
 
-            if not file_path.is_file():
-                continue
+            for file_name in files:
+                file_path = Path(root) / file_name
 
-            try:
-                content = file_path.read_text(encoding="utf-8")
+                try:
+                    content = file_path.read_text(encoding="utf-8")
 
-            except UnicodeDecodeError:
-                continue
+                except UnicodeDecodeError:
+                    continue
 
-            for placeholder, value in replacements.items():
+                for placeholder, value in replacements.items():
 
-                content = content.replace(placeholder, value)
+                    content = content.replace(placeholder, value)
 
-            file_path.write_text(content, encoding="utf-8")
+                file_path.write_text(content, encoding="utf-8")
 
     # ========================================================
     # ACTUALIZAR REQUIREMENTS.TXT

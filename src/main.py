@@ -11,11 +11,13 @@ from src.resource_manager import ResourceManager
 from src.logic.filters import (
     filter_features_by_template,
     filter_environments_by_template,
+    filter_tools_by_language,
 )
 from src.logic.validators import (
     validate_project_name,
     validate_required_field,
 )
+from src.logic.prerequisites import check_prerequisites, PREREQUISITE_MESSAGES
 from src.logic.project_builder import build_project
 
 # ============================================================
@@ -111,6 +113,28 @@ def create_project():
             print("Ingresá un número válido.")
 
     # --------------------------------------------------------
+    # Check template prerequisites
+    # (TEMPORARY: CLI visual feedback, will be removed when GUI is implemented)
+    # --------------------------------------------------------
+
+    requires = selected_template.get("requires", [])
+    if requires:
+        print("\n→ Verificando prerrequisitos...")
+        missing_prerequisites = check_prerequisites(requires)
+        if missing_prerequisites:
+            print("\nNo se puede crear el proyecto. Faltan los siguientes requisitos:\n")
+            for req in missing_prerequisites:
+                description = PREREQUISITE_MESSAGES.get(req)
+                if description:
+                    print(f"  - {req}: {description}\n")
+                else:
+                    print(f"  - {req}\n")
+            print("  Instalá los requisitos faltantes y volvé a intentarlo.")
+            return
+
+        print("✓ Todos los prerrequisitos están disponibles.")
+
+    # --------------------------------------------------------
     # Buscar Tools disponibles
     # --------------------------------------------------------
     # Las Tools son funcionalidades adicionales que pueden
@@ -122,6 +146,8 @@ def create_project():
 
     tool_manager = ResourceManager(TOOLS_DIR, "tool.json")
     tools = tool_manager.discover()
+    template_language = selected_template.get("language", "")
+    tools = filter_tools_by_language(tools, template_language)
     selected_tools = []
 
     if tools:
@@ -177,6 +203,15 @@ def create_project():
 
     # Filtrar por compatibilidad con el template
     compatible_features = filter_features_by_template(features, selected_template)
+    if template_language:
+        target_lang = template_language.lower()
+        compatible_features = [
+            f
+            for f in compatible_features
+            if "language" not in f
+            or not f["language"]
+            or f["language"].lower() == target_lang
+        ]
 
     selected_features = []
 
@@ -227,6 +262,15 @@ def create_project():
     compatible_environments = filter_environments_by_template(
         environments, selected_template
     )
+    if template_language:
+        target_lang = template_language.lower()
+        compatible_environments = [
+            env
+            for env in compatible_environments
+            if "language" not in env
+            or not env["language"]
+            or env["language"].lower() == target_lang
+        ]
 
     selected_environments = []
 
@@ -301,15 +345,16 @@ def create_project():
     # --------------------------------------------------------
 
     result = build_project(
-        projects_dir=project_location,
-        template_path=selected_template["path"],
-        project_name=project_name,
-        description=description,
-        tools=selected_tools,
-        features=selected_features,
-        environments=selected_environments,
-        template_language=selected_template.get("language", "").lower(),
-    )
+            projects_dir=project_location,
+            template_path=selected_template["path"],
+            project_name=project_name,
+            description=description,
+            tools=selected_tools,
+            features=selected_features,
+            environments=selected_environments,
+            template_language=selected_template.get("language", "").lower(),
+            template_runtime=selected_template.get("runtime", "python").lower(),
+        )
 
     if result.success:
         print("\n¡Proyecto creado correctamente!")
