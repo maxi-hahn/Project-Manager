@@ -27,6 +27,7 @@ class ProjectCreator:
 
     def __init__(self, projects_dir: Path):
         self.projects_dir = projects_dir
+        self._env_port = None
 
     # ========================================================
     # CREAR PROYECTO
@@ -118,10 +119,15 @@ class ProjectCreator:
 
             print("→ Generando configuración...")
 
-            self._replace_placeholders(
-                project_path,
-                {"{{PROJECT_NAME}}": project_name, "{{DESCRIPTION}}": description},
-            )
+            replacements = {
+                "{{PROJECT_NAME}}": project_name,
+                "{{DESCRIPTION}}": description,
+            }
+            # Si un Environment definió un puerto, agregarlo
+            if self._env_port is not None:
+                replacements["{{PORT}}"] = self._env_port
+
+            self._replace_placeholders(project_path, replacements)
 
             print("✓ Configuración generada.")
 
@@ -139,6 +145,9 @@ class ProjectCreator:
                 shutil.rmtree(project_path)
 
             raise
+
+        # Resetear estado para el próximo proyecto
+        self._env_port = None
 
         return project_path
 
@@ -351,6 +360,19 @@ class ProjectCreator:
                     shutil.copy2(source, destination)
 
                     print(f"  + {destination.name}")
+
+            # ------------------------------------------------
+            # Guardar el puerto por defecto para este lenguaje
+            # ------------------------------------------------
+            # El puerto se usa para reemplazar {{PORT}} en
+            # archivos como docker-compose.yml.
+            # ------------------------------------------------
+
+            default_ports = env.get("default_ports", {})
+
+            if template_language in default_ports:
+
+                self._env_port = str(default_ports[template_language])
 
             print(f"✓ {env['name']} configurado.")
 
