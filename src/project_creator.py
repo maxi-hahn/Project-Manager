@@ -1,3 +1,4 @@
+import json
 import os
 import shutil
 import subprocess
@@ -28,6 +29,7 @@ class ProjectCreator:
     def __init__(self, projects_dir: Path):
         self.projects_dir = projects_dir
         self._env_port = None
+        self._pre_feature_package_json = None
 
     # ========================================================
     # CREAR PROYECTO
@@ -35,11 +37,14 @@ class ProjectCreator:
     # Coordina todo el proceso de creación:
     #
     # 1. Copiar plantilla
-    # 2. Reemplazar configuración
-    # 3. Crear .venv
-    # 4. Ejecutar Tools
-    # 5. Actualizar requirements.txt
-    # 6. Verificar el entorno
+    # 2. Crear .venv (solo Python)
+    # 3. Ejecutar Tools
+    # 4. Copiar Features (+ merge package.json)
+    # 5. Actualizar requirements.txt (solo Python si hay tools)
+    # 6. Instalar dependencias
+    # 7. Copiar Environments
+    # 8. Reemplazar placeholders
+    # 9. Verificar entorno virtual (solo Python)
     # ========================================================
 
     def create_project(
@@ -64,7 +69,7 @@ class ProjectCreator:
         try:
 
             # ------------------------------------------------
-            # 1. Copiar la plantilla
+            # 1. Copy template
             # ------------------------------------------------
 
             print("\n→ Copiando plantilla...")
@@ -72,38 +77,49 @@ class ProjectCreator:
             shutil.copytree(
                 template_path,
                 project_path,
-                ignore=shutil.ignore_patterns("template.json")
+                ignore=shutil.ignore_patterns("template.json"),
             )
 
             print("✓ Plantilla copiada.")
 
-                        # ------------------------------------------------
-            # 2. Configurar runtime (varía según el lenguaje)
+            # ------------------------------------------------
+            # 2. Create .venv (only if template_runtime == "python")
             # ------------------------------------------------
 
             if template_runtime == "python":
-                self._setup_python_runtime(project_path, tools)
-            elif template_runtime == "node":
-                self._setup_node_runtime(project_path)
-            else:
-                print(f"→ Runtime '{template_runtime}' sin configuración específica.")
+                print("→ Creando entorno virtual (.venv)...")
+                self._create_virtual_environment(project_path)
+                print("✓ Entorno virtual creado.")
 
             # ------------------------------------------------
-            # 3. Ejecutar Tools
+            # 3. Run Tools
             # ------------------------------------------------
 
             if tools:
                 self._run_tools(project_path, tools)
 
             # ------------------------------------------------
-            # 4. Copiar Features
+            # 4. Copy Features + merge package.json
             # ------------------------------------------------
 
             if features:
                 self._run_features(project_path, features)
 
             # ------------------------------------------------
-            # 5. Copiar Environments
+            # 5. Update requirements.txt (only if template_runtime == "python" and tools exist)
+            # ------------------------------------------------
+
+            if template_runtime == "python" and tools:
+                self._update_requirements(project_path, tools)
+
+            # ------------------------------------------------
+            # 6. Install dependencies (single step)
+            # ------------------------------------------------
+
+            self._install_dependencies(project_path, template_runtime)
+
+            # ------------------------------------------------
+            # 7. Copy Environments
             # ------------------------------------------------
 
             if environments:
@@ -114,7 +130,13 @@ class ProjectCreator:
                 )
 
             # ------------------------------------------------
-            # 6. Reemplazar placeholders (después de copiar todo)
+            # Limpiar .gitkeep de carpetas con contenido
+            # ------------------------------------------------
+
+            self._cleanup_gitkeep(project_path)
+            
+            # ------------------------------------------------
+            # 8. Replace placeholders
             # ------------------------------------------------
 
             print("→ Generando configuración...")
@@ -132,11 +154,11 @@ class ProjectCreator:
             print("✓ Configuración generada.")
 
             # ------------------------------------------------
-            # 7. Actualizar requirements.txt (solo Python)
+            # 9. Verify Python venv (only if template_runtime == "python")
             # ------------------------------------------------
 
-            if template_runtime == "python" and tools:
-                self._update_requirements(project_path, tools)
+            if template_runtime == "python":
+                self._verify_virtual_environment(project_path)
 
         except (OSError, subprocess.CalledProcessError):
 
@@ -148,6 +170,7 @@ class ProjectCreator:
 
         # Resetear estado para el próximo proyecto
         self._env_port = None
+        self._pre_feature_package_json = None
 
         return project_path
 
@@ -158,43 +181,19 @@ class ProjectCreator:
     # está ejecutando Project Manager.
     # ========================================================
 
-    def _create_virtual_environment(self, project_path: Path):
+    def _create_virtual_environment(self, project_path: Path) -> None:
 
         subprocess.run(
             [sys.executable, "-m", "venv", str(project_path / ".venv")], check=True
         )
 
-
     # ========================================================
-    # CONFIGURAR RUNTIME PYTHON
+    # VERIFICAR ENTORNO VIRTUAL
     # ========================================================
-    # Pasos específicos para proyectos Python:
-    #   1. Crear .venv
-    #   2. Instalar dependencias del template
-    #   3. Verificar el entorno
+    # Comprueba que el entorno virtual Python funciona.
     # ========================================================
 
-    def _setup_python_runtime(self, project_path: Path, tools: list[dict] | None):
-
-        # ------------------------------------------------
-        # 1. Crear entorno virtual
-        # ------------------------------------------------
-
-        print("→ Creando entorno virtual (.venv)...")
-
-        self._create_virtual_environment(project_path)
-
-        print("✓ Entorno virtual creado.")
-
-        # ------------------------------------------------
-        # 2. Instalar dependencias del template
-        # ------------------------------------------------
-
-        self._install_template_dependencies(project_path)
-
-        # ------------------------------------------------
-        # 3. Verificar entorno virtual
-        # ------------------------------------------------
+    def _verify_virtual_environment(self, project_path: Path) -> None:
 
         print("→ Verificando entorno virtual...")
 
@@ -206,65 +205,45 @@ class ProjectCreator:
         print("✓ Entorno virtual verificado.")
 
     # ========================================================
-    # CONFIGURAR RUNTIME NODE
+    # INSTALAR DEPENDENCIAS
     # ========================================================
-    # Pasos específicos para proyectos Node/JavaScript:
-    #   1. Ejecutar npm install
-    #
-    # No se crea .venv porque Node usa node_modules/.
+    # Instala todas las dependencias del proyecto al final.
     # ========================================================
 
-    def _setup_node_runtime(self, project_path: Path):
+    def _install_dependencies(self, project_path: Path, template_runtime: str) -> None:
 
-        # ------------------------------------------------
-        # 1. Instalar dependencias con npm
-        # ------------------------------------------------
+        if template_runtime == "python":
+            requirements_file = project_path / "requirements.txt"
 
-        print("→ Instalando dependencias con npm...")
-        print("  (esto puede tardar unos minutos la primera vez)")
+            if not requirements_file.exists():
+                return
 
-        subprocess.run(
-            ["npm", "install"],
-            cwd=project_path,
-            check=True,
-            shell=True,  # Necesario en Windows para encontrar npm
-        )
+            content = requirements_file.read_text(encoding="utf-8").strip()
 
-        print("✓ Dependencias instaladas.")
+            if not content:
+                return
 
+            print("→ Instalando dependencias...")
 
+            self._run_command(
+                project_path,
+                ["python", "-m", "pip", "install", "-r", "requirements.txt"],
+            )
 
-    # ========================================================
-    # INSTALAR DEPENDENCIAS DEL TEMPLATE
-    # ========================================================
-    # Instala las dependencias declaradas en el archivo
-    # requirements.txt del template dentro del .venv.
-    #
-    # Esto deja el proyecto listo para ejecutarse sin que
-    # el usuario tenga que instalar nada manualmente.
-    # ========================================================
+            print("✓ Dependencias instaladas.")
 
-    def _install_template_dependencies(self, project_path: Path):
+        elif template_runtime == "node":
+            print("→ Instalando dependencias (npm install)...")
+            print("  (esto puede tardar unos minutos la primera vez)")
 
-        requirements_file = project_path / "requirements.txt"
+            subprocess.run(
+                ["npm", "install"],
+                cwd=project_path,
+                check=True,
+                shell=True,  # Necesario en Windows para encontrar npm
+            )
 
-        if not requirements_file.exists():
-            return
-
-        # Verificar que el archivo tenga contenido real
-        content = requirements_file.read_text(encoding="utf-8").strip()
-
-        if not content:
-            return
-
-        print("→ Instalando dependencias del template...")
-
-        self._run_command(
-            project_path,
-            ["python", "-m", "pip", "install", "-r", "requirements.txt"],
-        )
-
-        print("✓ Dependencias del template instaladas.")
+            print("✓ Dependencias instaladas.")
 
     # ========================================================
     # EJECUTAR TOOLS
@@ -292,10 +271,8 @@ class ProjectCreator:
     # ========================================================
     # EJECUTAR FEATURES
     # ========================================================
-    # Copia los archivos de cada Feature seleccionada.
-    #
-    # A diferencia de las Tools, las Features solo copian
-    # archivos. No instalan ni ejecutan comandos (por ahora).
+    # Copia los archivos de cada Feature seleccionada y
+    # fusiona package.json si la Feature contiene uno.
     # ========================================================
 
     def _run_features(self, project_path: Path, features: list[dict]):
@@ -304,21 +281,97 @@ class ProjectCreator:
 
             print(f"→ Copiando feature {feature['name']}...")
 
-            self._copy_tool_files(project_path, feature) # No es un error, reutilizamos copy_TOOL por que hace lo mismo, en un futuro puede llegar a cambiar 
+            # Backup pre-existing package.json before copying feature files
+            project_pkg = project_path / "package.json"
+            self._pre_feature_package_json = None
+            if project_pkg.exists():
+                try:
+                    self._pre_feature_package_json = json.loads(
+                        project_pkg.read_text(encoding="utf-8")
+                    )
+                except (json.JSONDecodeError, OSError):
+                    self._pre_feature_package_json = None
+
+            self._copy_tool_files(project_path, feature)
+
+            feature_pkg = Path(feature.get("path", "")) / "files" / "package.json"
+            if feature_pkg.exists():
+                self._merge_package_json(project_path, feature)
+
+            self._pre_feature_package_json = None
 
             print(f"✓ {feature['name']} copiada.")
 
+    # ========================================================
+    # FUSIONAR PACKAGE.JSON
+    # ========================================================
+    # Fusiona dependencias y devDependencies de una Feature
+    # en el package.json del proyecto.
+    # ========================================================
 
-        # ========================================================
+    def _merge_package_json(self, project_path: Path, feature: dict) -> None:
+
+        feature_pkg_file = Path(feature.get("path", "")) / "files" / "package.json"
+
+        if not feature_pkg_file.exists():
+            return
+
+        project_pkg_file = project_path / "package.json"
+
+        # Read project's package.json
+        project_data = None
+        if getattr(self, "_pre_feature_package_json", None) is not None:
+            project_data = self._pre_feature_package_json
+        elif project_pkg_file.exists():
+            try:
+                project_data = json.loads(project_pkg_file.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                project_data = None
+
+        # Delete feature's package.json copied to project if project has no package.json
+        if project_data is None:
+            if project_pkg_file.exists():
+                try:
+                    project_pkg_file.unlink()
+                except OSError:
+                    pass
+            return
+
+        # Read feature's package.json
+        try:
+            feature_data = json.loads(feature_pkg_file.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return
+
+        # Merge dependencies and devDependencies (project values take precedence)
+        added_deps = []
+
+        for dep_type in ["dependencies", "devDependencies"]:
+            project_deps = project_data.get(dep_type)
+            if not isinstance(project_deps, dict):
+                project_deps = {}
+                project_data[dep_type] = project_deps
+
+            feature_deps = feature_data.get(dep_type, {})
+            if isinstance(feature_deps, dict):
+                for dep_name, dep_version in feature_deps.items():
+                    if dep_name not in project_deps:
+                        project_deps[dep_name] = dep_version
+                        added_deps.append(dep_name)
+
+        # Write merged JSON back to project package.json with indent=2
+        project_pkg_file.write_text(
+            json.dumps(project_data, indent=2) + "\n", encoding="utf-8"
+        )
+
+        # Print added dependencies
+        for dep_name in added_deps:
+            print(f"  + {dep_name} (agregado a package.json)")
+
+    # ========================================================
     # EJECUTAR ENVIRONMENTS
     # ========================================================
     # Copia los archivos de cada Environment seleccionado.
-    #
-    # Algunos archivos son genéricos (docker-compose.yml) y
-    # otros son específicos por lenguaje (Dockerfile).
-    #
-    # El campo files_by_language indica qué archivo copiar
-    # según el lenguaje del template seleccionado.
     # ========================================================
 
     def _run_environments(
@@ -364,9 +417,6 @@ class ProjectCreator:
             # ------------------------------------------------
             # Guardar el puerto por defecto para este lenguaje
             # ------------------------------------------------
-            # El puerto se usa para reemplazar {{PORT}} en
-            # archivos como docker-compose.yml.
-            # ------------------------------------------------
 
             default_ports = env.get("default_ports", {})
 
@@ -378,17 +428,6 @@ class ProjectCreator:
 
     # ========================================================
     # COPIAR ARCHIVOS DE CONFIGURACIÓN DE TOOLS
-    # ========================================================
-    # Copia los archivos de configuración que cada Tool
-    # puede incluir en su carpeta files/.
-    #
-    # Por ejemplo:
-    #
-    # TOOLS/PYTHON/RUFF/files/.ruff.toml
-    #
-    # se copia al proyecto como:
-    #
-    # proyecto/.ruff.toml
     # ========================================================
 
     def _copy_tool_files(self, project_path: Path, tool: dict):
@@ -420,19 +459,6 @@ class ProjectCreator:
     # ========================================================
     # EJECUTAR UN COMANDO
     # ========================================================
-    # Ejecuta comandos utilizando el Python del .venv.
-    #
-    # Por ejemplo:
-    #
-    # ["python", "-m", "pip", "install", "pytest"]
-    #
-    # utiliza automáticamente:
-    #
-    # .venv/Scripts/python.exe
-    #
-    # De esta forma las dependencias se instalan dentro del
-    # entorno virtual del proyecto.
-    # ========================================================
 
     def _run_command(self, project_path: Path, command: list[str]):
 
@@ -445,16 +471,35 @@ class ProjectCreator:
 
         subprocess.run(command, cwd=project_path, check=True)
 
+
+        # ========================================================
+    # LIMPIAR ARCHIVOS .gitkeep
+    # ========================================================
+    # Elimina archivos .gitkeep de carpetas que ya tienen
+    # contenido. El .gitkeep solo tiene sentido en carpetas
+    # vacías (para que Git las rastree).
+    #
+    # Después de copiar Features y Environments, algunas
+    # carpetas que estaban vacías ahora tienen archivos, así
+    # que su .gitkeep ya no es necesario.
+    # ========================================================
+
+    def _cleanup_gitkeep(self, project_path: Path):
+
+        for gitkeep in project_path.rglob(".gitkeep"):
+
+            parent = gitkeep.parent
+
+            # Ver si la carpeta tiene otros archivos además del .gitkeep
+            has_other_files = any(
+                item for item in parent.iterdir()
+                if item.name != ".gitkeep"
+            )
+
+            if has_other_files:
+                gitkeep.unlink()
     # ========================================================
     # REEMPLAZAR PLACEHOLDERS
-    # ========================================================
-    # Recorre los archivos del proyecto y reemplaza valores
-    # como:
-    #
-    # {{PROJECT_NAME}}
-    # {{DESCRIPTION}}
-    #
-    # por los datos introducidos por el usuario.
     # ========================================================
 
     def _replace_placeholders(self, project_path: Path, replacements: dict[str, str]):
@@ -480,14 +525,6 @@ class ProjectCreator:
 
     # ========================================================
     # ACTUALIZAR REQUIREMENTS.TXT
-    # ========================================================
-    # Agrega las dependencias declaradas por las Tools al
-    # archivo requirements.txt del proyecto.
-    #
-    # Esto permite que las dependencias queden documentadas
-    # y sean instalables con un simple:
-    #
-    # pip install -r requirements.txt
     # ========================================================
 
     def _update_requirements(self, project_path: Path, tools: list[dict]):
