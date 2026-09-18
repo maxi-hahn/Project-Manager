@@ -106,11 +106,14 @@ class ProjectCreator:
                 self._run_features(project_path, features)
 
             # ------------------------------------------------
-            # 5. Update requirements.txt (only if template_runtime == "python" and tools exist)
+            # 5. Update requirements.txt / package.json (if tools exist)
             # ------------------------------------------------
 
-            if template_runtime == "python" and tools:
-                self._update_requirements(project_path, tools)
+            if tools:
+                if template_runtime == "python":
+                    self._update_requirements(project_path, tools)
+                elif template_runtime == "node":
+                    self._add_node_tool_dependencies(project_path, tools)
 
             # ------------------------------------------------
             # 6. Install dependencies (single step)
@@ -567,3 +570,65 @@ class ProjectCreator:
         )
 
         print("✓ requirements.txt actualizado.")
+
+    # ========================================================
+    # AGREGAR DEPENDENCIAS DE TOOLS A PACKAGE.JSON (NODE)
+    # ========================================================
+    # Agrega las dependencias declaradas por las Tools al
+    # archivo package.json del proyecto Node.
+    # ========================================================
+
+    def _add_node_tool_dependencies(
+        self, project_path: Path, tools: list[dict]
+    ) -> None:
+
+        package_file = project_path / "package.json"
+
+        if not package_file.exists():
+            return
+
+        try:
+            package_data = json.loads(package_file.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return
+
+        dependencies = package_data.get("dependencies")
+        if not isinstance(dependencies, dict):
+            dependencies = {}
+            package_data["dependencies"] = dependencies
+
+        added_deps = []
+
+        for tool in tools:
+            tool_deps = tool.get("dependencies", [])
+            for dep_str in tool_deps:
+                if not dep_str or not isinstance(dep_str, str):
+                    continue
+
+                # Parse dep_str into name and version
+                if dep_str.startswith("@"):
+                    at_idx = dep_str.find("@", 1)
+                else:
+                    at_idx = dep_str.find("@")
+
+                if at_idx != -1:
+                    dep_name = dep_str[:at_idx]
+                    dep_version = dep_str[at_idx + 1 :]
+                else:
+                    dep_name = dep_str
+                    dep_version = "*"
+
+                if dep_name not in dependencies:
+                    dependencies[dep_name] = dep_version
+                    added_deps.append(dep_name)
+
+        if not added_deps:
+            return
+
+        package_file.write_text(
+            json.dumps(package_data, indent=2) + "\n", encoding="utf-8"
+        )
+
+        for dep_name in added_deps:
+            print(f"  + {dep_name} (agregado a package.json)")
+
