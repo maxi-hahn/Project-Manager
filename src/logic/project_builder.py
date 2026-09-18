@@ -30,6 +30,7 @@ def build_project(
     environments: list[dict],
     template_language: str,
     template_runtime: str = "python",
+    technologies: list[dict] | None = None,
 ) -> BuildResult:
     """Orchestrate project creation using ProjectCreator and return a BuildResult."""
     creator = ProjectCreator(projects_dir)
@@ -43,6 +44,7 @@ def build_project(
             environments=environments,
             template_language=template_language,
             template_runtime=template_runtime,
+            technologies=technologies,
         )
         return BuildResult(
             success=True, project_path=project_path, error_message=""

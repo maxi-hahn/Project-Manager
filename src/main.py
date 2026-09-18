@@ -4,6 +4,7 @@ from config import (
     TOOLS_DIR,
     FEATURES_DIR,
     ENVIRONMENTS_DIR,
+    TECHNOLOGIES_DIR,
 )
 
 from src.template_manager import TemplateManager
@@ -308,6 +309,66 @@ def create_project():
                 print("Ingresá un número válido.")
 
     # --------------------------------------------------------
+    # Buscar Technologies disponibles
+    # --------------------------------------------------------
+    # Las Technologies son librerías o frameworks que se
+    # integran al proyecto (ej: Tailwind CSS, SQLAlchemy).
+    # Solo se muestran las compatibles con el template.
+    # --------------------------------------------------------
+
+    tech_manager = ResourceManager(TECHNOLOGIES_DIR, "technology.json")
+    technologies = tech_manager.discover()
+
+    # Filtrar por compatibilidad con el template
+    compatible_technologies = filter_features_by_template(
+        technologies, selected_template
+    )
+    if template_language:
+        target_lang = template_language.lower()
+        compatible_technologies = [
+            tech
+            for tech in compatible_technologies
+            if "language" not in tech
+            or not tech["language"]
+            or tech["language"].lower() == target_lang
+        ]
+
+    selected_technologies = []
+
+    if compatible_technologies:
+        print("\nTecnologías disponibles:")
+
+        for index, tech in enumerate(compatible_technologies, start=1):
+            print(f"{index}. {tech['name']}")
+            print(f"   {tech['description']}")
+
+        print("0. Ninguna")
+
+        while True:
+            option = input("\nSeleccioná una tecnología (0 para continuar): ").strip()
+
+            if option == "0":
+                break
+
+            try:
+                option = int(option)
+
+                if 1 <= option <= len(compatible_technologies):
+                    tech = compatible_technologies[option - 1]
+
+                    if tech not in selected_technologies:
+                        selected_technologies.append(tech)
+                        print(f"✓ {tech['name']} seleccionada.")
+                    else:
+                        print("Esa tecnología ya fue seleccionada.")
+
+                else:
+                    print("Opción no válida.")
+
+            except ValueError:
+                print("Ingresá un número válido.")
+
+    # --------------------------------------------------------
     # Seleccionar ubicación del proyecto
     # --------------------------------------------------------
 
@@ -352,6 +413,7 @@ def create_project():
             tools=selected_tools,
             features=selected_features,
             environments=selected_environments,
+            technologies=selected_technologies,
             template_language=selected_template.get("language", "").lower(),
             template_runtime=selected_template.get("runtime", "python").lower(),
         )

@@ -57,6 +57,7 @@ class ProjectCreator:
         environments: list[dict] | None = None,
         template_language: str = "",
         template_runtime: str = "python",
+        technologies: list[dict] | None = None,
     ) -> Path:
 
         project_path = self.projects_dir / project_name
@@ -106,17 +107,25 @@ class ProjectCreator:
                 self._run_features(project_path, features)
 
             # ------------------------------------------------
-            # 5. Update requirements.txt / package.json (if tools exist)
+            # 5. Copy Technologies
             # ------------------------------------------------
 
-            if tools:
+            if technologies:
+                self._run_technologies(project_path, technologies)
+
+            # ------------------------------------------------
+            # 6. Update requirements.txt / package.json (if tools or technologies exist)
+            # ------------------------------------------------
+
+            if tools or technologies:
+                resources = (tools or []) + (technologies or [])
                 if template_runtime == "python":
-                    self._update_requirements(project_path, tools)
+                    self._update_requirements(project_path, resources)
                 elif template_runtime == "node":
-                    self._add_node_tool_dependencies(project_path, tools)
+                    self._add_node_dependencies(project_path, resources)
 
             # ------------------------------------------------
-            # 6. Install dependencies (single step)
+            # 7. Install dependencies (single step)
             # ------------------------------------------------
 
             self._install_dependencies(project_path, template_runtime)
@@ -304,6 +313,22 @@ class ProjectCreator:
             self._pre_feature_package_json = None
 
             print(f"✓ {feature['name']} copiada.")
+
+    # ========================================================
+    # EJECUTAR TECHNOLOGIES
+    # ========================================================
+    # Copia los archivos de cada Tecnología seleccionada.
+    # ========================================================
+
+    def _run_technologies(self, project_path: Path, technologies: list[dict]) -> None:
+
+        for tech in technologies:
+
+            print(f"→ Copiando tecnología {tech['name']}...")
+
+            self._copy_tool_files(project_path, tech)
+
+            print(f"✓ {tech['name']} copiada.")
 
     # ========================================================
     # FUSIONAR PACKAGE.JSON
@@ -530,7 +555,7 @@ class ProjectCreator:
     # ACTUALIZAR REQUIREMENTS.TXT
     # ========================================================
 
-    def _update_requirements(self, project_path: Path, tools: list[dict]):
+    def _update_requirements(self, project_path: Path, resources: list[dict]):
 
         requirements_file = project_path / "requirements.txt"
 
@@ -546,11 +571,11 @@ class ProjectCreator:
             except UnicodeDecodeError:
                 pass
 
-        # Recopilar dependencias de las Tools
+        # Recopilar dependencias de los recursos (tools, tecnologías)
         new_dependencies = []
 
-        for tool in tools:
-            dependencies = tool.get("dependencies", [])
+        for item in resources:
+            dependencies = item.get("dependencies", [])
             new_dependencies.extend(dependencies)
 
         if not new_dependencies:
@@ -572,14 +597,14 @@ class ProjectCreator:
         print("✓ requirements.txt actualizado.")
 
     # ========================================================
-    # AGREGAR DEPENDENCIAS DE TOOLS A PACKAGE.JSON (NODE)
+    # AGREGAR DEPENDENCIAS A PACKAGE.JSON (NODE)
     # ========================================================
-    # Agrega las dependencias declaradas por las Tools al
-    # archivo package.json del proyecto Node.
+    # Agrega las dependencias declaradas por los recursos
+    # (tools, tecnologías) al archivo package.json del proyecto Node.
     # ========================================================
 
-    def _add_node_tool_dependencies(
-        self, project_path: Path, tools: list[dict]
+    def _add_node_dependencies(
+        self, project_path: Path, resources: list[dict]
     ) -> None:
 
         package_file = project_path / "package.json"
@@ -599,9 +624,9 @@ class ProjectCreator:
 
         added_deps = []
 
-        for tool in tools:
-            tool_deps = tool.get("dependencies", [])
-            for dep_str in tool_deps:
+        for item in resources:
+            item_deps = item.get("dependencies", [])
+            for dep_str in item_deps:
                 if not dep_str or not isinstance(dep_str, str):
                     continue
 

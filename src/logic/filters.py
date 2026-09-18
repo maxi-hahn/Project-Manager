@@ -7,14 +7,17 @@
 
 
 def filter_features_by_template(features: list[dict], template: dict) -> list[dict]:
-    """Filter features whose compatible_with list includes the template identifier."""
-    template_id = template["name"].lower().replace(" ", "_")
+    # Normalize template name: lowercase, spaces and hyphens to underscores
+    template_id = (
+        template["name"]
+        .lower()
+        .replace(" ", "_")
+        .replace("-", "_")
+    )
     return [
-        feature
-        for feature in features
-        if template_id in feature.get("compatible_with", [])
+        f for f in features
+        if template_id in f.get("compatible_with", [])
     ]
-
 
 def filter_environments_by_template(
     environments: list[dict], template: dict
