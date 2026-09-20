@@ -43,6 +43,7 @@ class ProjectManagerApp(ctk.CTk):
         # Datos
         self.templates = []
         self.selected_template = None
+        self._loaded_template = None  # Template cargado en Paso 3
 
         # Layout principal
         self.grid_columnconfigure(0, weight=7)
@@ -218,6 +219,19 @@ class ProjectManagerApp(ctk.CTk):
         )
         self.nav_bar.grid(row=1, column=0, sticky="ew", padx=10, pady=10)
 
+         # Si entramos al paso 3, recargar recursos solo si el template cambió
+        if index == 2:
+            template = self.screens[1].get_selected_template()
+
+            # Comparar por nombre (más robusto que comparar el dict completo)
+            current_name = template["name"] if template else None
+            loaded_name = self._loaded_template["name"] if self._loaded_template else None
+
+            if current_name != loaded_name:
+                self.screens[2].load_for_template(template)
+                self._loaded_template = template
+
+
         self._update_next_button()
         self._update_preview()
 
@@ -263,6 +277,30 @@ class ProjectManagerApp(ctk.CTk):
             )
         else:
             self.preview_template_label.configure(text="")
+
+        # Recursos seleccionados (paso 3)
+        if len(self.screens) > 2 and hasattr(self.screens[2], "get_selection"):
+            selection = self.screens[2].get_selection()
+
+            lines = []
+            for category, resources in selection.items():
+                if resources:
+                    lines.append(f"\n{category.capitalize()}:")
+                    for r in resources:
+                        lines.append(f"  · {r['name']}")
+
+            if lines:
+                self.preview_tree_label.configure(
+                    text="\n".join(lines),
+                    text_color="white",
+                    anchor="nw",
+                )
+            else:
+                self.preview_tree_label.configure(
+                    text="(acá aparecerá el árbol de carpetas)",
+                    text_color="gray",
+                    anchor="nw",
+                )
 
     # ========================================================
     # ACCIONES
