@@ -34,6 +34,9 @@ class CreateProjectModal(ctk.CTkToplevel):
         # Path to the created project (set after a successful build)
         self._project_path: Path | None = None
 
+        # Whether the build succeeded (used to decide whether to close the app on Close)
+        self._success: bool = False
+
         # Extract display data
         info = project_data.get("info", {})
         template = project_data.get("template", {})
@@ -193,15 +196,28 @@ class CreateProjectModal(ctk.CTkToplevel):
         """Transitions to finished state: appends result and enables close button."""
 
         self._project_path = project_path
+        self._success = success
 
         if success:
             self.title("Proyecto creado")
             final_message = f"\n✓ Proyecto creado correctamente\n{project_path}"
         else:
             self.title("Error al crear el proyecto")
-            final_message = f"\n{message}"
+            final_message = f"\n✗ {message}"
 
         self._append_log(final_message)
+
+        # Show a modal error notification on failure
+        if not success:
+            from tkinter import messagebox
+            self.after(
+                100,
+                lambda: messagebox.showerror(
+                    "Error al crear el proyecto",
+                    message or "Ocurrió un error inesperado.",
+                    parent=self,
+                ),
+            )
 
         # Enable the close button
         self.action_button.configure(state="normal", command=self._on_close)
@@ -237,10 +253,10 @@ class CreateProjectModal(ctk.CTkToplevel):
         thread.start()
 
     def _on_close(self):
-        """Opens VS Code (if requested and available), then closes the entire app."""
+        """Closes the modal. If the build succeeded, also closes the app."""
 
         # Attempt to open VS Code when the project was created successfully
-        if self.vscode_var.get() and self._project_path is not None:
+        if self._success and self.vscode_var.get() and self._project_path is not None:
             if shutil.which("code"):
                 try:
                     subprocess.Popen(
@@ -256,9 +272,17 @@ class CreateProjectModal(ctk.CTkToplevel):
                     "Abrí el proyecto manualmente."
                 )
 
-        # Close the entire application (destroy the root window, not the modal)
-        self.master.quit()
-        self.master.destroy()
+        # Release the modal grab and destroy it
+        try:
+            self.grab_release()
+        except Exception:
+            pass
+        self.destroy()
+
+        # If the build failed, keep the main app open so the user can retry
+        if self._success:
+            self.master.quit()
+            self.master.destroy()
 
     # ============================================================
     # PROJECT CREATION (runs in background thread)
@@ -266,32 +290,46 @@ class CreateProjectModal(ctk.CTkToplevel):
 
     def _run_build(self):
         """Calls build_project and schedules the UI update on the main thread."""
-        info = self.project_data.get("info", {})
-        template = self.project_data.get("template", {})
-        config = self.project_data.get("config", {})
 
-        location = info.get("location", "")
-        projects_dir = Path(PROJECTS_DIR) / location
+        # Wrap the entire flow so any unexpected error still lands the modal
+        # in the finished state instead of freezing the UI.
+        try:
+            info = self.project_data.get("info", {})
+            template = self.project_data.get("template", {})
+            config = self.project_data.get("config", {})
 
-        result = build_project(
-            projects_dir=projects_dir,
-            template_path=Path(template["path"]),
-            project_name=info["name"],
-            description=info.get("description", ""),
-            tools=config.get("tools", []),
-            features=config.get("features", []),
-            environments=config.get("environments", []),
-            technologies=config.get("technologies", []),
-            template_language=template.get("language", "").lower(),
-            template_runtime=template.get("runtime", "python").lower(),
-            logger=self._thread_safe_log,
-        )
+            location = info.get("location", "")
+            projects_dir = Path(PROJECTS_DIR) / location
+
+            result = build_project(
+                projects_dir=projects_dir,
+                template_path=Path(template["path"]),
+                project_name=info["name"],
+                description=info.get("description", ""),
+                tools=config.get("tools", []),
+                features=config.get("features", []),
+                environments=config.get("environments", []),
+                technologies=config.get("technologies", []),
+                template_language=template.get("language", "").lower(),
+                template_runtime=template.get("runtime", "python").lower(),
+                logger=self._thread_safe_log,
+            )
+
+            success = result.success
+            error_message = result.error_message
+            project_path = result.project_path
+
+        except Exception as error:
+            # Catch anything that escaped build_project
+            success = False
+            error_message = f"Error inesperado: {error}"
+            project_path = None
 
         # Hand off the result to the main thread
         self.after(
             0,
             self._enter_finished_state,
-            result.success,
-            result.error_message,
-            result.project_path,
+            success,
+            error_message,
+            project_path,
         )
