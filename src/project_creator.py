@@ -4,6 +4,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Callable
 
 # Directories to skip during placeholder replacement (e.g. dependencies, build artifacts, venvs)
 SKIP_DIRECTORIES = {
@@ -26,10 +27,19 @@ class ProjectCreator:
     # Guarda la carpeta donde se crearán los proyectos.
     # ========================================================
 
-    def __init__(self, projects_dir: Path):
+    def __init__(
+        self, projects_dir: Path, logger: Callable[[str], None] | None = None
+    ):
         self.projects_dir = projects_dir
         self._env_port = None
         self._pre_feature_package_json = None
+        self.logger = logger
+
+    def _log(self, message: str = "") -> None:
+        if self.logger:
+            self.logger(message)
+        else:
+            print(message)
 
     # ========================================================
     # CREAR PROYECTO
@@ -73,7 +83,7 @@ class ProjectCreator:
             # 1. Copy template
             # ------------------------------------------------
 
-            print("\n→ Copiando plantilla...")
+            self._log("\n→ Copiando plantilla...")
 
             shutil.copytree(
                 template_path,
@@ -81,16 +91,16 @@ class ProjectCreator:
                 ignore=shutil.ignore_patterns("template.json"),
             )
 
-            print("✓ Plantilla copiada.")
+            self._log("✓ Plantilla copiada.")
 
             # ------------------------------------------------
             # 2. Create .venv (only if template_runtime == "python")
             # ------------------------------------------------
 
             if template_runtime == "python":
-                print("→ Creando entorno virtual (.venv)...")
+                self._log("→ Creando entorno virtual (.venv)...")
                 self._create_virtual_environment(project_path)
-                print("✓ Entorno virtual creado.")
+                self._log("✓ Entorno virtual creado.")
 
             # ------------------------------------------------
             # 3. Run Tools
@@ -151,7 +161,7 @@ class ProjectCreator:
             # 8. Replace placeholders
             # ------------------------------------------------
 
-            print("→ Generando configuración...")
+            self._log("→ Generando configuración...")
 
             replacements = {
                 "{{PROJECT_NAME}}": project_name,
@@ -163,7 +173,7 @@ class ProjectCreator:
 
             self._replace_placeholders(project_path, replacements)
 
-            print("✓ Configuración generada.")
+            self._log("✓ Configuración generada.")
 
             # ------------------------------------------------
             # 9. Verify Python venv (only if template_runtime == "python")
@@ -207,14 +217,14 @@ class ProjectCreator:
 
     def _verify_virtual_environment(self, project_path: Path) -> None:
 
-        print("→ Verificando entorno virtual...")
+        self._log("→ Verificando entorno virtual...")
 
         self._run_command(
             project_path,
             [str(project_path / ".venv" / "Scripts" / "python.exe"), "--version"],
         )
 
-        print("✓ Entorno virtual verificado.")
+        self._log("✓ Entorno virtual verificado.")
 
     # ========================================================
     # INSTALAR DEPENDENCIAS
@@ -235,18 +245,18 @@ class ProjectCreator:
             if not content:
                 return
 
-            print("→ Instalando dependencias...")
+            self._log("→ Instalando dependencias...")
 
             self._run_command(
                 project_path,
                 ["python", "-m", "pip", "install", "-r", "requirements.txt"],
             )
 
-            print("✓ Dependencias instaladas.")
+            self._log("✓ Dependencias instaladas.")
 
         elif template_runtime == "node":
-            print("→ Instalando dependencias (npm install)...")
-            print("  (esto puede tardar unos minutos la primera vez)")
+            self._log("→ Instalando dependencias (npm install)...")
+            self._log("  (esto puede tardar unos minutos la primera vez)")
 
             subprocess.run(
                 ["npm", "install"],
@@ -255,7 +265,7 @@ class ProjectCreator:
                 shell=True,  # Necesario en Windows para encontrar npm
             )
 
-            print("✓ Dependencias instaladas.")
+            self._log("✓ Dependencias instaladas.")
 
     # ========================================================
     # EJECUTAR TOOLS
@@ -268,7 +278,7 @@ class ProjectCreator:
 
         for tool in tools:
 
-            print(f"→ Instalando/configurando {tool['name']}...")
+            self._log(f"→ Instalando/configurando {tool['name']}...")
 
             # Copiar archivos de configuración si existen
             self._copy_tool_files(project_path, tool)
@@ -278,7 +288,7 @@ class ProjectCreator:
 
                 self._run_command(project_path, action["command"])
 
-            print(f"✓ {tool['name']} configurado.")
+            self._log(f"✓ {tool['name']} configurado.")
 
     # ========================================================
     # EJECUTAR FEATURES
@@ -291,7 +301,7 @@ class ProjectCreator:
 
         for feature in features:
 
-            print(f"→ Copiando feature {feature['name']}...")
+            self._log(f"→ Copiando feature {feature['name']}...")
 
             # Backup pre-existing package.json before copying feature files
             project_pkg = project_path / "package.json"
@@ -312,7 +322,7 @@ class ProjectCreator:
 
             self._pre_feature_package_json = None
 
-            print(f"✓ {feature['name']} copiada.")
+            self._log(f"✓ {feature['name']} copiada.")
 
     # ========================================================
     # EJECUTAR TECHNOLOGIES
@@ -324,11 +334,11 @@ class ProjectCreator:
 
         for tech in technologies:
 
-            print(f"→ Copiando tecnología {tech['name']}...")
+            self._log(f"→ Copiando tecnología {tech['name']}...")
 
             self._copy_tool_files(project_path, tech)
 
-            print(f"✓ {tech['name']} copiada.")
+            self._log(f"✓ {tech['name']} copiada.")
 
     # ========================================================
     # FUSIONAR PACKAGE.JSON
@@ -394,7 +404,7 @@ class ProjectCreator:
 
         # Print added dependencies
         for dep_name in added_deps:
-            print(f"  + {dep_name} (agregado a package.json)")
+            self._log(f"  + {dep_name} (agregado a package.json)")
 
     # ========================================================
     # EJECUTAR ENVIRONMENTS
@@ -411,7 +421,7 @@ class ProjectCreator:
 
         for env in environments:
 
-            print(f"→ Configurando {env['name']}...")
+            self._log(f"→ Configurando {env['name']}...")
 
             env_path = Path(env.get("path", ""))
 
@@ -440,7 +450,7 @@ class ProjectCreator:
 
                     shutil.copy2(source, destination)
 
-                    print(f"  + {destination.name}")
+                    self._log(f"  + {destination.name}")
 
             # ------------------------------------------------
             # Guardar el puerto por defecto para este lenguaje
@@ -452,7 +462,7 @@ class ProjectCreator:
 
                 self._env_port = str(default_ports[template_language])
 
-            print(f"✓ {env['name']} configurado.")
+            self._log(f"✓ {env['name']} configurado.")
 
     # ========================================================
     # COPIAR ARCHIVOS DE CONFIGURACIÓN DE TOOLS
@@ -466,7 +476,7 @@ class ProjectCreator:
         if not files_dir.exists():
             return
 
-        print(f"→ Copiando archivos de {tool['name']}...")
+        self._log(f"→ Copiando archivos de {tool['name']}...")
 
         for file_path in files_dir.rglob("*"):
 
@@ -480,9 +490,9 @@ class ProjectCreator:
                 destination.parent.mkdir(parents=True, exist_ok=True)
 
                 shutil.copy2(file_path, destination)
-                print(f"  + {relative_path}")
+                self._log(f"  + {relative_path}")
 
-        print(f"✓ Archivos de {tool['name']} copiados.")
+        self._log(f"✓ Archivos de {tool['name']} copiados.")
 
     # ========================================================
     # EJECUTAR UN COMANDO
@@ -581,20 +591,20 @@ class ProjectCreator:
         if not new_dependencies:
             return
 
-        print("→ Actualizando requirements.txt...")
+        self._log("→ Actualizando requirements.txt...")
 
         # Agregar dependencias sin duplicados
         for dependency in new_dependencies:
             if dependency not in existing_requirements:
                 existing_requirements.append(dependency)
-                print(f"  + {dependency}")
+                self._log(f"  + {dependency}")
 
         # Escribir requirements.txt actualizado
         requirements_file.write_text(
             "\n".join(existing_requirements) + "\n", encoding="utf-8"
         )
 
-        print("✓ requirements.txt actualizado.")
+        self._log("✓ requirements.txt actualizado.")
 
     # ========================================================
     # AGREGAR DEPENDENCIAS A PACKAGE.JSON (NODE)
@@ -655,5 +665,5 @@ class ProjectCreator:
         )
 
         for dep_name in added_deps:
-            print(f"  + {dep_name} (agregado a package.json)")
+            self._log(f"  + {dep_name} (agregado a package.json)")
 

@@ -7,6 +7,7 @@
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 from src.project_creator import ProjectCreator
 
@@ -31,9 +32,10 @@ def build_project(
     template_language: str,
     template_runtime: str = "python",
     technologies: list[dict] | None = None,
+    logger: Callable[[str], None] | None = None,
 ) -> BuildResult:
     """Orchestrate project creation using ProjectCreator and return a BuildResult."""
-    creator = ProjectCreator(projects_dir)
+    creator = ProjectCreator(projects_dir, logger=logger)
     try:
         project_path = creator.create_project(
             template_path=template_path,

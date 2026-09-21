@@ -3,6 +3,7 @@ import customtkinter as ctk
 from config import PROJECTS_DIR
 
 from src.template_manager import TemplateManager
+from src.ui.components.create_project_modal import CreateProjectModal
 from src.ui.components.step_navigation import StepNavigation
 from src.ui.screens.step1_info import Step1Info
 from src.ui.screens.step2_template import Step2Template
@@ -231,6 +232,14 @@ class ProjectManagerApp(ctk.CTk):
                 self.screens[2].load_for_template(template)
                 self._loaded_template = template
 
+        # Si entramos al paso 4, reconstruir el resumen con los datos actuales
+        if index == 3:
+            data = {
+                "info": self.screens[0].get_data(),
+                "template": self.screens[1].get_selected_template(),
+                "config": self.screens[2].get_selection(),
+            }
+            self.screens[3].refresh(data)
 
         self._update_next_button()
         self._update_preview()
@@ -307,7 +316,13 @@ class ProjectManagerApp(ctk.CTk):
     # ========================================================
 
     def _on_create_project(self):
-        print("Crear proyecto: próximamente")
+        """Gathers wizard data and opens the project creation modal."""
+        data = {
+            "info": self.screens[0].get_data(),
+            "template": self.screens[1].get_selected_template(),
+            "config": self.screens[2].get_selection(),
+        }
+        CreateProjectModal(self, data)
 
     def _on_settings_click(self):
         print("Ajustes: próximamente")
