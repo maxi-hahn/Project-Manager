@@ -3,6 +3,7 @@ import customtkinter as ctk
 
 from config import PROJECTS_DIR, TEMPLATES_DIR, get_resource_dirs
 from src.core.config_manager import ConfigManager
+from src.logic.tree_builder import build_tree, merge_trees, render_tree
 from src.template_manager import TemplateManager
 from src.ui.components.create_project_modal import CreateProjectModal
 from src.ui.components.settings_dialog import SettingsDialog
@@ -245,15 +246,16 @@ class ProjectManagerApp(ctk.CTk):
         )
         self.preview_template_label.pack(fill="x", padx=10, pady=(0, 5))
 
-        self.preview_tree_label = ctk.CTkLabel(
+        self.preview_tree_box = ctk.CTkTextbox(
             preview,
-            text="(acá aparecerá el árbol de carpetas)",
-            font=ctk.CTkFont(size=12, family="Consolas"),
+            font=ctk.CTkFont(size=10, family="Consolas"),
             text_color="gray",
-            justify="left",
-            anchor="nw",
+            wrap="none",
+            activate_scrollbars=True,
         )
-        self.preview_tree_label.pack(fill="both", expand=True, padx=10, pady=5)
+        self.preview_tree_box.pack(fill="both", expand=True, padx=10, pady=5)
+        self.preview_tree_box.insert("1.0", "(acá aparecerá el árbol de carpetas)")
+        self.preview_tree_box.configure(state="disabled")
 
     # ========================================================
     # WIZARD
@@ -358,14 +360,17 @@ class ProjectManagerApp(ctk.CTk):
         else:
             self.nav_bar.set_next_enabled(True)
 
+    def _set_preview_tree(self, text: str, color: str = "white"):
+        self.preview_tree_box.configure(state="normal")
+        self.preview_tree_box.delete("1.0", "end")
+        self.preview_tree_box.insert("1.0", text)
+        self.preview_tree_box.configure(state="disabled", text_color=color)
+
     def _update_preview(self):
-        """Actualiza el panel de preview."""
-        # Paso 1: nombre y ubicación
         data = self.screens[0].get_data()
         self.preview_name_label.configure(text=data["name"] or "")
         self.preview_location_label.configure(text=data["location"] or "")
 
-        # Template seleccionado
         selected_template = self.screens[1].get_selected_template()
         if selected_template:
             self.preview_template_label.configure(
@@ -374,29 +379,53 @@ class ProjectManagerApp(ctk.CTk):
         else:
             self.preview_template_label.configure(text="")
 
-        # Recursos seleccionados (paso 3)
-        if len(self.screens) > 2 and hasattr(self.screens[2], "get_selection"):
-            selection = self.screens[2].get_selection()
+        if not selected_template:
+            self._set_preview_tree(
+                "(acá aparecerá el árbol de carpetas)", color="gray"
+            )
+            return
 
-            lines = []
-            for category, resources in selection.items():
-                if resources:
-                    lines.append(f"\n{category.capitalize()}:")
-                    for r in resources:
-                        lines.append(f"  · {r['name']}")
+        project_name = data["name"] or "<Proyecto>"
 
-            if lines:
-                self.preview_tree_label.configure(
-                    text="\n".join(lines),
-                    text_color="white",
-                    anchor="nw",
-                )
+        merged = self._get_resource_tree(selected_template, is_template=True)
+
+        if (
+            self._loaded_template is not None
+            and selected_template is not None
+            and self._loaded_template.get("name") == selected_template.get("name")
+        ):
+            if len(self.screens) > 2 and hasattr(self.screens[2], "get_selection"):
+                selection = self.screens[2].get_selection()
+                for resources in selection.values():
+                    for resource in resources:
+                        resource_tree = self._get_resource_tree(
+                            resource, is_template=False
+                        )
+                        merged = merge_trees(merged, resource_tree)
+
+        rendered = render_tree(merged, project_name)
+
+        self._set_preview_tree(rendered, color="white")
+
+    def _get_resource_tree(self, resource: dict, is_template: bool) -> dict:
+        cache_key = "_tree_template" if is_template else "_tree_files"
+
+        if cache_key in resource:
+            return resource[cache_key]
+
+        path = Path(resource.get("path", ""))
+
+        if is_template:
+            tree = build_tree(path, ignore_names={"template.json"})
+        else:
+            files_dir = path / "files"
+            if files_dir.exists():
+                tree = build_tree(files_dir)
             else:
-                self.preview_tree_label.configure(
-                    text="(acá aparecerá el árbol de carpetas)",
-                    text_color="gray",
-                    anchor="nw",
-                )
+                tree = {"type": "dir", "name": "", "children": {}}
+
+        resource[cache_key] = tree
+        return tree
 
     # ========================================================
     # ACCIONES
