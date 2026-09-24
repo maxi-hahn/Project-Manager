@@ -2,7 +2,7 @@ import customtkinter as ctk
 
 from src.ui.components.template_card import TemplateCard
 
-
+from src.logic.prerequisites import check_prerequisites, PREREQUISITE_MESSAGES
 # ============================================================
 # PASO 2: ELEGIR TEMPLATE
 # ============================================================
@@ -136,6 +136,14 @@ class Step2Template(ctk.CTkFrame):
     # ========================================================
 
     def _on_card_select(self, template: dict):
+        # Verificar prerrequisitos antes de seleccionar
+        requires = template.get("requires", [])
+        if requires:
+            missing = check_prerequisites(requires)
+            if missing:
+                self._show_prerequisites_error(missing)
+                return
+
         self.selected_template = template
 
         # Actualizar apariencia de las cards
@@ -145,6 +153,21 @@ class Step2Template(ctk.CTkFrame):
 
         self._notify_change()
 
+    def _show_prerequisites_error(self, missing: list[str]):
+        """Muestra un messagebox con los prerrequisitos faltantes."""
+        from tkinter import messagebox
+
+        lines = ["No se puede seleccionar este template.\n", "Faltan los siguientes requisitos:\n"]
+        for req in missing:
+            description = PREREQUISITE_MESSAGES.get(req, req)
+            lines.append(f"  - {req}: {description}\n")
+        lines.append("\nInstalá los requisitos faltantes y volvé a intentarlo.")
+
+        messagebox.showerror(
+            "Prerrequisitos faltantes",
+            "".join(lines),
+            parent=self,
+        )
     def _notify_change(self):
         if self.on_change:
             self.on_change()
