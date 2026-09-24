@@ -1,8 +1,10 @@
+from pathlib import Path
 import customtkinter as ctk
 
+from src.logic.prerequisites import PREREQUISITE_MESSAGES, check_prerequisites
+from src.template_manager import TemplateManager
 from src.ui.components.template_card import TemplateCard
 
-from src.logic.prerequisites import check_prerequisites, PREREQUISITE_MESSAGES
 # ============================================================
 # PASO 2: ELEGIR TEMPLATE
 # ============================================================
@@ -13,14 +15,21 @@ from src.logic.prerequisites import check_prerequisites, PREREQUISITE_MESSAGES
 
 
 class Step2Template(ctk.CTkFrame):
-    def __init__(self, master, templates: list[dict], on_change=None):
+    def __init__(
+        self,
+        master,
+        templates: list[dict] | None = None,
+        on_change=None,
+        templates_dir: Path | None = None,
+    ):
         super().__init__(master, fg_color="transparent")
 
-        self.all_templates = templates
+        self.all_templates = templates or []
         self.on_change = on_change
         self.selected_template = None
         self.filter_var = ctk.StringVar(value="Todos")
         self.cards = []
+        self.placeholder_label = None
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(3, weight=1)
@@ -58,10 +67,15 @@ class Step2Template(ctk.CTkFrame):
 
         # Lista scrolleable
         self.scroll_frame = ctk.CTkScrollableFrame(self, fg_color="transparent")
-        self.scroll_frame.grid(row=3, column=0, sticky="nsew", padx=20, pady=(0, 10))
+        self.scroll_frame.grid(
+            row=3, column=0, sticky="nsew", padx=20, pady=(0, 10)
+        )
         self.scroll_frame.grid_columnconfigure(0, weight=1)
 
-        self._render_cards()
+        if templates_dir:
+            self.set_templates_dir(templates_dir)
+        else:
+            self._render_cards()
 
     # ========================================================
     # FILTRO
@@ -100,6 +114,21 @@ class Step2Template(ctk.CTkFrame):
             card.destroy()
         self.cards = []
 
+        if self.placeholder_label and self.placeholder_label.winfo_exists():
+            self.placeholder_label.destroy()
+            self.placeholder_label = None
+
+        if not self.all_templates:
+            self.placeholder_label = ctk.CTkLabel(
+                self.scroll_frame,
+                text="No se encontraron templates. Verificá la configuración.",
+                text_color="gray",
+            )
+            self.placeholder_label.grid(row=0, column=0, sticky="ew", pady=20)
+            self.selected_template = None
+            self._notify_change()
+            return
+
         # Filtrar
         filter_value = self.filter_var.get()
 
@@ -107,7 +136,8 @@ class Step2Template(ctk.CTkFrame):
             filtered = self.all_templates
         else:
             filtered = [
-                t for t in self.all_templates
+                t
+                for t in self.all_templates
                 if self._category_label(t) == filter_value
             ]
 
@@ -121,7 +151,10 @@ class Step2Template(ctk.CTkFrame):
             card.grid(row=index, column=0, sticky="ew", pady=5)
 
             # Marcar como seleccionada si corresponde
-            if self.selected_template and self.selected_template["name"] == template["name"]:
+            if (
+                self.selected_template
+                and self.selected_template["name"] == template["name"]
+            ):
                 card.set_selected(True)
 
             self.cards.append(card)
@@ -157,7 +190,10 @@ class Step2Template(ctk.CTkFrame):
         """Muestra un messagebox con los prerrequisitos faltantes."""
         from tkinter import messagebox
 
-        lines = ["No se puede seleccionar este template.\n", "Faltan los siguientes requisitos:\n"]
+        lines = [
+            "No se puede seleccionar este template.\n",
+            "Faltan los siguientes requisitos:\n",
+        ]
         for req in missing:
             description = PREREQUISITE_MESSAGES.get(req, req)
             lines.append(f"  - {req}: {description}\n")
@@ -168,6 +204,7 @@ class Step2Template(ctk.CTkFrame):
             "".join(lines),
             parent=self,
         )
+
     def _notify_change(self):
         if self.on_change:
             self.on_change()
@@ -175,6 +212,22 @@ class Step2Template(ctk.CTkFrame):
     # ========================================================
     # API PÚBLICA
     # ========================================================
+
+    def set_templates_dir(self, templates_dir: Path | None):
+        """Descubre y carga templates desde la ruta especificada."""
+        if templates_dir and templates_dir.exists() and templates_dir.is_dir():
+            manager = TemplateManager(templates_dir)
+            templates = manager.discover_templates()
+            templates.sort(
+                key=lambda t: (t.get("category", ""), t.get("name", ""))
+            )
+            self.all_templates = templates
+        else:
+            self.all_templates = []
+
+        self.filter_dropdown.configure(values=self._build_filter_options())
+        self.filter_var.set("Todos")
+        self._render_cards()
 
     def get_selected_template(self) -> dict | None:
         return self.selected_template

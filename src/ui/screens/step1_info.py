@@ -1,3 +1,4 @@
+from pathlib import Path
 import customtkinter as ctk
 
 from config import PROJECTS_DIR
@@ -17,10 +18,12 @@ from config import PROJECTS_DIR
 
 
 class Step1Info(ctk.CTkFrame):
-    def __init__(self, master, on_change=None):
+    def __init__(self, master, on_change=None, on_change_projects_root=None):
         super().__init__(master, fg_color="transparent")
 
         self.on_change = on_change
+        self.on_change_projects_root = on_change_projects_root
+        self.projects_root: Path | None = None
 
         # Variables de estado
         self.name_var = ctk.StringVar()
@@ -97,6 +100,23 @@ class Step1Info(ctk.CTkFrame):
             row=7, column=0, sticky="ew", padx=20, pady=(0, 15)
         )
 
+        # Frame para sin ubicaciones
+        self.no_locations_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.no_locations_label = ctk.CTkLabel(
+            self.no_locations_frame,
+            text="No se encontraron ubicaciones. Modificalo en Ajustes.",
+            text_color="#ff6b6b",
+            font=ctk.CTkFont(size=12),
+        )
+        self.no_locations_label.pack(side="left", padx=(0, 10))
+        self.no_locations_button = ctk.CTkButton(
+            self.no_locations_frame,
+            text="Elegir carpeta",
+            width=110,
+            command=self._on_choose_folder_click,
+        )
+        self.no_locations_button.pack(side="left")
+
     # ============================================================
     # VALIDACIÓN
     # ============================================================
@@ -106,10 +126,11 @@ class Step1Info(ctk.CTkFrame):
         name = self.name_var.get().strip()
         location = self.location_var.get()
 
-        if not name or not location:
+        if not name or not location or location == "(sin ubicaciones)":
             return None
 
-        project_path = PROJECTS_DIR / location / name
+        root = getattr(self, "projects_root", None) or PROJECTS_DIR
+        project_path = root / location / name
 
         if project_path.exists():
             return "Ya existe un proyecto con ese nombre en esa ubicación."
@@ -133,6 +154,15 @@ class Step1Info(ctk.CTkFrame):
         self._update_name_error()
         self._notify_change()
 
+    def _on_choose_folder_click(self):
+        from tkinter import filedialog
+
+        chosen = filedialog.askdirectory(
+            parent=self, title="Seleccionar carpeta de proyectos"
+        )
+        if chosen and self.on_change_projects_root:
+            self.on_change_projects_root(Path(chosen))
+
     def _notify_change(self, *args):
         self._update_name_error()
         if self.on_change:
@@ -142,13 +172,40 @@ class Step1Info(ctk.CTkFrame):
     # API PÚBLICA
     # ============================================================
 
+    def set_projects_root(self, projects_root: Path):
+        self.projects_root = projects_root
+        locations = []
+        if (
+            projects_root
+            and projects_root.exists()
+            and projects_root.is_dir()
+        ):
+            try:
+                locations = [
+                    folder.name
+                    for folder in projects_root.iterdir()
+                    if folder.is_dir()
+                ]
+            except OSError:
+                locations = []
+
+        self.set_locations(locations)
+
     def set_locations(self, locations: list[str]):
         if not locations:
             self.location_dropdown.configure(values=["(sin ubicaciones)"])
+            self.location_var.set("(sin ubicaciones)")
+            self.no_locations_frame.grid(
+                row=8, column=0, sticky="w", padx=20, pady=(0, 10)
+            )
             return
 
+        if self.no_locations_frame.winfo_manager():
+            self.no_locations_frame.grid_forget()
+
         self.location_dropdown.configure(values=locations)
-        self.location_var.set(locations[0])
+        if self.location_var.get() not in locations:
+            self.location_var.set(locations[0])
 
     def set_default_location(self, location: str):
         """Selecciona una ubicación por defecto si existe en las opciones."""
@@ -170,7 +227,7 @@ class Step1Info(ctk.CTkFrame):
             return False
         if not data["description"]:
             return False
-        if not data["location"]:
+        if not data["location"] or data["location"] == "(sin ubicaciones)":
             return False
         if self._check_duplicate() is not None:
             return False

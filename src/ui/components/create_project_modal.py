@@ -5,9 +5,7 @@ from pathlib import Path
 
 import customtkinter as ctk
 
-from config import PROJECTS_DIR
 from src.logic.project_builder import build_project
-
 
 # ============================================================
 # MODAL DE CREACIÓN DE PROYECTO
@@ -110,16 +108,21 @@ class CreateProjectModal(ctk.CTkToplevel):
         # VS Code checkbox (hidden during progress/finished states)
         # --------------------------------------------------------
 
-        self.vscode_var = ctk.BooleanVar(value=True)
+        default_editor = self.project_data.get("default_editor", "vscode")
+        if default_editor == "none":
+            self.vscode_var = ctk.BooleanVar(value=False)
+        else:
+            self.vscode_var = ctk.BooleanVar(value=True)
 
         self.vscode_checkbox = ctk.CTkCheckBox(
             self,
             text="Abrir proyecto en VS Code al finalizar",
             variable=self.vscode_var,
         )
-        self.vscode_checkbox.grid(
-            row=1, column=0, sticky="w", padx=24, pady=(0, 16)
-        )
+        if default_editor != "none":
+            self.vscode_checkbox.grid(
+                row=1, column=0, sticky="w", padx=24, pady=(0, 16)
+            )
 
         # --------------------------------------------------------
         # Log textbox (hidden initially, shown during progress)
@@ -172,7 +175,8 @@ class CreateProjectModal(ctk.CTkToplevel):
         self.title("Creando proyecto...")
 
         # Hide the VS Code checkbox and Cancel button
-        self.vscode_checkbox.grid_forget()
+        if self.vscode_checkbox.winfo_manager():
+            self.vscode_checkbox.grid_forget()
         self.cancel_button.grid_forget()
 
         # Disable the action button while the build is running
@@ -210,6 +214,7 @@ class CreateProjectModal(ctk.CTkToplevel):
         # Show a modal error notification on failure
         if not success:
             from tkinter import messagebox
+
             self.after(
                 100,
                 lambda: messagebox.showerror(
@@ -256,7 +261,11 @@ class CreateProjectModal(ctk.CTkToplevel):
         """Closes the modal. If the build succeeded, also closes the app."""
 
         # Attempt to open VS Code when the project was created successfully
-        if self._success and self.vscode_var.get() and self._project_path is not None:
+        if (
+            self._success
+            and self.vscode_var.get()
+            and self._project_path is not None
+        ):
             if shutil.which("code"):
                 try:
                     subprocess.Popen(
@@ -297,14 +306,25 @@ class CreateProjectModal(ctk.CTkToplevel):
             info = self.project_data.get("info", {})
             template = self.project_data.get("template", {})
             config = self.project_data.get("config", {})
+            projects_root = self.project_data.get("projects_root")
+            default_location = self.project_data.get("default_location", "")
+            auto_install = self.project_data.get(
+                "auto_install_dependencies", True
+            )
 
-            location = info.get("location", "")
-            projects_dir = Path(PROJECTS_DIR) / location
+            location = info.get("location", default_location)
+
+            if projects_root:
+                projects_dir = Path(projects_root) / location
+            else:
+                from config import PROJECTS_DIR
+
+                projects_dir = Path(PROJECTS_DIR) / location
 
             result = build_project(
                 projects_dir=projects_dir,
                 template_path=Path(template["path"]),
-                project_name=info["name"],
+                project_name=info.get("name", ""),
                 description=info.get("description", ""),
                 tools=config.get("tools", []),
                 features=config.get("features", []),
@@ -312,6 +332,7 @@ class CreateProjectModal(ctk.CTkToplevel):
                 technologies=config.get("technologies", []),
                 template_language=template.get("language", "").lower(),
                 template_runtime=template.get("runtime", "python").lower(),
+                install_dependencies=auto_install,
                 logger=self._thread_safe_log,
             )
 

@@ -68,6 +68,7 @@ class ProjectCreator:
         template_language: str = "",
         template_runtime: str = "python",
         technologies: list[dict] | None = None,
+        install_dependencies: bool = True,
     ) -> Path:
 
         project_path = self.projects_dir / project_name
@@ -138,7 +139,8 @@ class ProjectCreator:
             # 7. Install dependencies (single step)
             # ------------------------------------------------
 
-            self._install_dependencies(project_path, template_runtime)
+            if install_dependencies:
+                self._install_dependencies(project_path, template_runtime)
 
             # ------------------------------------------------
             # 7. Copy Environments

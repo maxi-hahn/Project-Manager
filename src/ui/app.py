@@ -1,16 +1,16 @@
+from pathlib import Path
 import customtkinter as ctk
 
-from config import PROJECTS_DIR
-
+from config import PROJECTS_DIR, TEMPLATES_DIR, get_resource_dirs
+from src.core.config_manager import ConfigManager
 from src.template_manager import TemplateManager
 from src.ui.components.create_project_modal import CreateProjectModal
+from src.ui.components.settings_dialog import SettingsDialog
 from src.ui.components.step_navigation import StepNavigation
 from src.ui.screens.step1_info import Step1Info
 from src.ui.screens.step2_template import Step2Template
 from src.ui.screens.step3_config import Step3Config
 from src.ui.screens.step4_summary import Step4Summary
-from config import TEMPLATES_DIR
-
 
 # ============================================================
 # CONFIGURACIÓN GLOBAL
@@ -28,6 +28,7 @@ WINDOW_MIN_HEIGHT = 700
 # VENTANA PRINCIPAL
 # ============================================================
 
+
 class ProjectManagerApp(ctk.CTk):
     def __init__(self):
         super().__init__()
@@ -35,6 +36,14 @@ class ProjectManagerApp(ctk.CTk):
         self.title(WINDOW_TITLE)
         self.minsize(WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT)
         self.geometry(f"{WINDOW_MIN_WIDTH}x{WINDOW_MIN_HEIGHT}")
+
+        # Configuración y estado
+        self.config_manager = ConfigManager()
+        self.projects_root: Path | None = None
+        self.resources_root: Path | None = None
+        self.resource_dirs: dict = {}
+        self.default_editor: str = "vscode"
+        self.auto_install_dependencies: bool = True
 
         # Estado del wizard
         self.current_step = 0
@@ -55,24 +64,95 @@ class ProjectManagerApp(ctk.CTk):
         self._build_main_content()
         self._build_preview_panel()
 
-        # Cargar templates
+        # Cargar templates por defecto
         self._load_templates()
 
         # Inicializar wizard
         self._build_screens()
+
+        if self.config_manager.exists():
+            self._apply_config()
+        else:
+            self.after(100, self._open_initial_config)
+
         self._show_step(0)
+
+    # ========================================================
+    # CONFIGURACIÓN WIZARD
+    # ========================================================
+
+    def _open_initial_config(self):
+        SettingsDialog(
+            self,
+            self.config_manager,
+            is_first_run=True,
+            on_save=self._on_initial_config_saved,
+            on_cancel=self._on_initial_config_cancelled,
+        )
+
+    def _on_initial_config_saved(self):
+        self._apply_config()
+
+    def _on_initial_config_cancelled(self):
+        self.quit()
+        self.destroy()
+
+    def _apply_config(self):
+        config = self.config_manager.get_all()
+
+        projects_root = config.get("projects_root", "")
+        resources_root = config.get("resources_root", "")
+        default_location = config.get("default_location", "")
+
+        if not projects_root or not resources_root:
+            return
+
+        self.projects_root = Path(projects_root)
+        self.resources_root = Path(resources_root)
+        self.resource_dirs = get_resource_dirs(self.resources_root)
+        self.default_editor = config.get("default_editor", "vscode")
+        self.auto_install_dependencies = config.get(
+            "auto_install_dependencies", True
+        )
+
+        # Pass paths to screens
+        if len(self.screens) > 0:
+            self.screens[0].set_projects_root(self.projects_root)
+            if default_location:
+                self.screens[0].set_default_location(default_location)
+
+        if len(self.screens) > 1:
+            self.screens[1].set_templates_dir(
+                self.resource_dirs.get("templates")
+            )
+
+        if len(self.screens) > 2:
+            self.screens[2].set_resource_dirs(self.resource_dirs)
+
+        self._update_next_button()
+        self._update_preview()
+
+    def _on_change_projects_root(self, new_path: Path):
+        self.config_manager.set("projects_root", str(new_path))
+        self._apply_config()
 
     # ========================================================
     # DATOS
     # ========================================================
 
     def _load_templates(self):
-        """Carga y ordena los templates disponibles."""
+        """Carga y ordena los templates disponibles por defecto."""
+        if not TEMPLATES_DIR.exists():
+            self.templates = []
+            return
+
         manager = TemplateManager(TEMPLATES_DIR)
         templates = manager.discover_templates()
 
         # Ordenar por categoría y luego por nombre
-        templates.sort(key=lambda t: (t.get("category", ""), t.get("name", "")))
+        templates.sort(
+            key=lambda t: (t.get("category", ""), t.get("name", ""))
+        )
 
         self.templates = templates
 
@@ -181,7 +261,11 @@ class ProjectManagerApp(ctk.CTk):
 
     def _build_screens(self):
         self.screens = [
-            Step1Info(self.content_frame, on_change=self._on_state_change),
+            Step1Info(
+                self.content_frame,
+                on_change=self._on_state_change,
+                on_change_projects_root=self._on_change_projects_root,
+            ),
             Step2Template(
                 self.content_frame,
                 templates=self.templates,
@@ -191,13 +275,14 @@ class ProjectManagerApp(ctk.CTk):
             Step4Summary(self.content_frame, on_change=self._on_state_change),
         ]
 
-        # Cargar ubicaciones en el paso 1
-        locations = [
-            folder.name
-            for folder in PROJECTS_DIR.iterdir()
-            if folder.is_dir()
-        ]
-        self.screens[0].set_locations(locations)
+        # Cargar ubicaciones por defecto si existen
+        if PROJECTS_DIR.exists():
+            locations = [
+                folder.name
+                for folder in PROJECTS_DIR.iterdir()
+                if folder.is_dir()
+            ]
+            self.screens[0].set_locations(locations)
 
     def _show_step(self, index: int):
         if self.current_screen:
@@ -220,13 +305,15 @@ class ProjectManagerApp(ctk.CTk):
         )
         self.nav_bar.grid(row=1, column=0, sticky="ew", padx=10, pady=10)
 
-         # Si entramos al paso 3, recargar recursos solo si el template cambió
+        # Si entramos al paso 3, recargar recursos solo si el template cambió
         if index == 2:
             template = self.screens[1].get_selected_template()
 
-            # Comparar por nombre (más robusto que comparar el dict completo)
+            # Comparar por nombre
             current_name = template["name"] if template else None
-            loaded_name = self._loaded_template["name"] if self._loaded_template else None
+            loaded_name = (
+                self._loaded_template["name"] if self._loaded_template else None
+            )
 
             if current_name != loaded_name:
                 self.screens[2].load_for_template(template)
@@ -321,11 +408,20 @@ class ProjectManagerApp(ctk.CTk):
             "info": self.screens[0].get_data(),
             "template": self.screens[1].get_selected_template(),
             "config": self.screens[2].get_selection(),
+            "projects_root": str(self.projects_root) if self.projects_root else "",
+            "default_location": self.config_manager.get("default_location", ""),
+            "default_editor": self.default_editor,
+            "auto_install_dependencies": self.auto_install_dependencies,
         }
         CreateProjectModal(self, data)
 
     def _on_settings_click(self):
-        print("Ajustes: próximamente")
+        SettingsDialog(
+            self,
+            self.config_manager,
+            is_first_run=False,
+            on_save=self._apply_config,
+        )
 
 
 # ============================================================

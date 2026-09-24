@@ -32,6 +32,7 @@ def build_project(
     template_language: str,
     template_runtime: str = "python",
     technologies: list[dict] | None = None,
+    install_dependencies: bool = True,
     logger: Callable[[str], None] | None = None,
 ) -> BuildResult:
     """Orchestrate project creation using ProjectCreator and return a BuildResult."""
@@ -47,6 +48,7 @@ def build_project(
             template_language=template_language,
             template_runtime=template_runtime,
             technologies=technologies,
+            install_dependencies=install_dependencies,
         )
         return BuildResult(
             success=True, project_path=project_path, error_message=""
