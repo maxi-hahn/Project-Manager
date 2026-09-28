@@ -14,6 +14,7 @@ class ConfigManager:
         "editors": [],
         "custom_editors": [],
         "auto_install_dependencies": True,
+        "github_last_visibility": "private",
     }
 
     def __init__(self):

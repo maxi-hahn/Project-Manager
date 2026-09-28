@@ -2,10 +2,12 @@ import shutil
 import subprocess
 import threading
 from pathlib import Path
+from tkinter import messagebox
 
 import customtkinter as ctk
 
 from src.core.editors import get_editor_by_key, open_in_editor
+from src.core.github import create_repository, is_gh_ready
 from src.logic.project_builder import build_project
 
 # ============================================================
@@ -13,14 +15,14 @@ from src.logic.project_builder import build_project
 # ============================================================
 # Flujo de tres estados:
 #
-#   1. Confirmación  → muestra resumen y selector de editor.
-#   2. Progreso      → oculta selector y botón Cancelar,
+#   1. Confirmación  → muestra resumen, opción GitHub y selector de editor.
+#   2. Progreso      → oculta opciones y botón Cancelar,
 #                      muestra logs en tiempo real.
 #   3. Finalizado    → habilita el botón Cerrar.
 # ============================================================
 
 MODAL_WIDTH = 600
-MODAL_HEIGHT_CONFIRM = 280
+MODAL_HEIGHT_CONFIRM = 380
 MODAL_HEIGHT_PROGRESS = 500
 
 
@@ -29,6 +31,10 @@ class CreateProjectModal(ctk.CTkToplevel):
         super().__init__(master)
 
         self.project_data = project_data
+        self._config_manager = project_data.get("config_manager")
+        self._last_visibility = project_data.get(
+            "github_last_visibility", "private"
+        )
 
         # Path to the created project (set after a successful build)
         self._project_path: Path | None = None
@@ -38,6 +44,11 @@ class CreateProjectModal(ctk.CTkToplevel):
 
         # Map option labels to execution commands
         self._editor_options_map: dict[str, str | None] = {}
+
+        # GitHub creation state (captured on main thread before build)
+        self._create_repo_selected: bool = False
+        self._repo_visibility: str = "none"
+        self._repo_name: str = ""
 
         # Extract display data
         info = project_data.get("info", {})
@@ -86,10 +97,10 @@ class CreateProjectModal(ctk.CTkToplevel):
         """Builds the full modal layout (confirmation state)."""
 
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(2, weight=1)
+        self.grid_rowconfigure(3, weight=1)
 
         # --------------------------------------------------------
-        # Summary label
+        # Summary label (Row 0)
         # --------------------------------------------------------
 
         summary_text = (
@@ -109,7 +120,86 @@ class CreateProjectModal(ctk.CTkToplevel):
         )
 
         # --------------------------------------------------------
-        # Editor selection dropdown
+        # GitHub repository option section (Row 1)
+        # --------------------------------------------------------
+
+        self.gh_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.gh_frame.grid(row=1, column=0, sticky="w", padx=24, pady=(0, 16))
+
+        if is_gh_ready():
+            ctk.CTkLabel(
+                self.gh_frame,
+                text="¿Crear repositorio en GitHub?",
+                font=ctk.CTkFont(size=12, weight="bold"),
+                anchor="w",
+            ).pack(side="top", anchor="w", pady=(0, 4))
+
+            self.gh_var = ctk.StringVar(value="none")
+
+            radio_frame = ctk.CTkFrame(self.gh_frame, fg_color="transparent")
+            radio_frame.pack(side="top", anchor="w")
+
+            self.radio_none = ctk.CTkRadioButton(
+                radio_frame,
+                text="No",
+                variable=self.gh_var,
+                value="none",
+                command=self._on_gh_radio_change,
+            )
+            self.radio_none.pack(side="left", padx=(0, 15))
+
+            self.radio_private = ctk.CTkRadioButton(
+                radio_frame,
+                text="Sí, privado",
+                variable=self.gh_var,
+                value="private",
+                command=self._on_gh_radio_change,
+            )
+            self.radio_private.pack(side="left", padx=(0, 15))
+
+            self.radio_public = ctk.CTkRadioButton(
+                radio_frame,
+                text="Sí, público",
+                variable=self.gh_var,
+                value="public",
+                command=self._on_gh_radio_change,
+            )
+            self.radio_public.pack(side="left")
+
+            self.repo_name_frame = ctk.CTkFrame(
+                self.gh_frame, fg_color="transparent"
+            )
+
+            ctk.CTkLabel(
+                self.repo_name_frame,
+                text="Nombre del repositorio:",
+                font=ctk.CTkFont(size=12),
+                anchor="w",
+            ).pack(side="top", anchor="w", pady=(4, 2))
+
+            self.repo_name_entry = ctk.CTkEntry(
+                self.repo_name_frame,
+                width=300,
+            )
+            self.repo_name_entry.insert(0, self._project_name)
+            self.repo_name_entry.pack(side="top", anchor="w")
+        else:
+            self.gh_note_label = ctk.CTkLabel(
+                self.gh_frame,
+                text=(
+                    "GitHub CLI no está instalado o autenticado. "
+                    "Se omitirá la creación del repositorio."
+                ),
+                font=ctk.CTkFont(size=11),
+                text_color="gray",
+                justify="left",
+                anchor="w",
+                wraplength=520,
+            )
+            self.gh_note_label.pack(side="top", anchor="w")
+
+        # --------------------------------------------------------
+        # Editor selection dropdown (Row 2)
         # --------------------------------------------------------
 
         editor_keys = self.project_data.get("editors", [])
@@ -137,7 +227,7 @@ class CreateProjectModal(ctk.CTkToplevel):
 
         self.editor_frame = ctk.CTkFrame(self, fg_color="transparent")
         self.editor_frame.grid(
-            row=1, column=0, sticky="w", padx=24, pady=(0, 16)
+            row=2, column=0, sticky="w", padx=24, pady=(0, 16)
         )
 
         has_configured_editors = len(options_list) > 1
@@ -158,7 +248,7 @@ class CreateProjectModal(ctk.CTkToplevel):
         self.editor_dropdown.pack(side="top", anchor="w")
 
         # --------------------------------------------------------
-        # Log textbox (hidden initially, shown during progress)
+        # Log textbox (Row 3, hidden initially, shown during progress)
         # --------------------------------------------------------
 
         self.log_textbox = ctk.CTkTextbox(
@@ -170,11 +260,11 @@ class CreateProjectModal(ctk.CTkToplevel):
         # Not placed in the grid until creation begins
 
         # --------------------------------------------------------
-        # Button row
+        # Button row (Row 4)
         # --------------------------------------------------------
 
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
-        btn_frame.grid(row=3, column=0, sticky="ew", padx=24, pady=(0, 20))
+        btn_frame.grid(row=4, column=0, sticky="ew", padx=24, pady=(0, 20))
         btn_frame.grid_columnconfigure(0, weight=1)
 
         self.cancel_button = ctk.CTkButton(
@@ -198,6 +288,14 @@ class CreateProjectModal(ctk.CTkToplevel):
         # Apply confirmation-state geometry
         self.geometry(f"{MODAL_WIDTH}x{MODAL_HEIGHT_CONFIRM}")
 
+    def _on_gh_radio_change(self):
+        """Shows or hides the repo name entry depending on radio choice."""
+        if hasattr(self, "repo_name_frame"):
+            if self.gh_var.get() in ("private", "public"):
+                self.repo_name_frame.pack(side="top", anchor="w", pady=(8, 0))
+            else:
+                self.repo_name_frame.pack_forget()
+
     # ============================================================
     # STATE TRANSITIONS
     # ============================================================
@@ -207,7 +305,9 @@ class CreateProjectModal(ctk.CTkToplevel):
 
         self.title("Creando proyecto...")
 
-        # Hide the editor selector frame and Cancel button
+        # Hide options frames and Cancel button
+        if hasattr(self, "gh_frame") and self.gh_frame.winfo_manager():
+            self.gh_frame.grid_forget()
         if hasattr(self, "editor_frame") and self.editor_frame.winfo_manager():
             self.editor_frame.grid_forget()
         self.cancel_button.grid_forget()
@@ -217,7 +317,7 @@ class CreateProjectModal(ctk.CTkToplevel):
 
         # Show the log textbox
         self.log_textbox.grid(
-            row=2, column=0, sticky="nsew", padx=24, pady=(0, 12)
+            row=3, column=0, sticky="nsew", padx=24, pady=(0, 12)
         )
 
         # Expand to progress-state size and re-center
@@ -246,8 +346,6 @@ class CreateProjectModal(ctk.CTkToplevel):
 
         # Show a modal error notification on failure
         if not success:
-            from tkinter import messagebox
-
             self.after(
                 100,
                 lambda: messagebox.showerror(
@@ -284,7 +382,26 @@ class CreateProjectModal(ctk.CTkToplevel):
         self.destroy()
 
     def _on_create(self):
-        """Starts project creation in a background thread."""
+        """Validates input and starts project creation in a background thread."""
+        self._create_repo_selected = False
+        self._repo_visibility = "none"
+        self._repo_name = ""
+
+        if hasattr(self, "gh_var") and self.gh_var.get() in (
+            "private",
+            "public",
+        ):
+            self._repo_name = self.repo_name_entry.get().strip()
+            if not self._repo_name:
+                messagebox.showerror(
+                    "Error de validación",
+                    "Ingresá un nombre para el repositorio en GitHub.",
+                    parent=self,
+                )
+                return
+            self._create_repo_selected = True
+            self._repo_visibility = self.gh_var.get()
+
         self._enter_progress_state()
 
         thread = threading.Thread(target=self._run_build, daemon=True)
@@ -366,6 +483,28 @@ class CreateProjectModal(ctk.CTkToplevel):
             success = result.success
             error_message = result.error_message
             project_path = result.project_path
+
+            # Create GitHub repository if requested and local creation succeeded
+            if success and project_path and self._create_repo_selected:
+                if self._config_manager:
+                    self._config_manager.set(
+                        "github_last_visibility", self._repo_visibility
+                    )
+
+                self._thread_safe_log("\n→ Creando repositorio en GitHub...")
+
+                is_private = self._repo_visibility == "private"
+                created = create_repository(
+                    name=self._repo_name,
+                    path=project_path,
+                    private=is_private,
+                    logger=self._thread_safe_log,
+                )
+
+                if not created:
+                    self._thread_safe_log(
+                        "⚠ No se pudo crear el repositorio en GitHub. El proyecto local se creó correctamente."
+                    )
 
         except Exception as error:
             # Catch anything that escaped build_project

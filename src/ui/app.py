@@ -444,6 +444,10 @@ class ProjectManagerApp(ctk.CTk):
             "editors": self.editors,
             "custom_editors": self.custom_editors,
             "auto_install_dependencies": self.auto_install_dependencies,
+            "config_manager": self.config_manager,
+            "github_last_visibility": self.config_manager.get(
+                "github_last_visibility", "private"
+            ),
         }
         CreateProjectModal(self, data)
 
