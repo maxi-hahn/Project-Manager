@@ -66,9 +66,6 @@ class ProjectManagerApp(ctk.CTk):
         self._build_main_content()
         self._build_preview_panel()
 
-        # Cargar templates por defecto
-        self._load_templates()
-
         # Inicializar wizard
         self._build_screens()
 
@@ -125,9 +122,7 @@ class ProjectManagerApp(ctk.CTk):
                 self.screens[0].set_default_location(default_location)
 
         if len(self.screens) > 1:
-            self.screens[1].set_templates_dir(
-                self.resource_dirs.get("templates")
-            )
+            self.screens[1].set_templates_dir(self.resource_dirs["templates"])
 
         if len(self.screens) > 2:
             self.screens[2].set_resource_dirs(self.resource_dirs)
@@ -272,7 +267,7 @@ class ProjectManagerApp(ctk.CTk):
             ),
             Step2Template(
                 self.content_frame,
-                templates=self.templates,
+                templates=[],
                 on_change=self._on_state_change,
             ),
             Step3Config(self.content_frame, on_change=self._on_state_change),
@@ -354,7 +349,11 @@ class ProjectManagerApp(ctk.CTk):
         self._update_preview()
 
     def _update_next_button(self):
-        """Habilita o deshabilita Siguiente según la validez del paso."""
+        """Enable or disable the Next button based on step validity."""
+        if not self.screens or self.current_step >= len(self.screens):
+            self.nav_bar.set_next_enabled(False)
+            return
+
         screen = self.screens[self.current_step]
 
         if hasattr(screen, "is_valid"):

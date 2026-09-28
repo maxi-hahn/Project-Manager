@@ -67,9 +67,7 @@ class Step2Template(ctk.CTkFrame):
 
         # Lista scrolleable
         self.scroll_frame = ctk.CTkScrollableFrame(self, fg_color="transparent")
-        self.scroll_frame.grid(
-            row=3, column=0, sticky="nsew", padx=20, pady=(0, 10)
-        )
+        self.scroll_frame.grid(row=3, column=0, sticky="nsew", padx=20, pady=(0, 10))
         self.scroll_frame.grid_columnconfigure(0, weight=1)
 
         if templates_dir:
@@ -110,24 +108,13 @@ class Step2Template(ctk.CTkFrame):
         """Limpia y vuelve a renderizar las cards según el filtro."""
 
         # Limpiar
-        for card in self.cards:
-            card.destroy()
-        self.cards = []
-
-        if self.placeholder_label and self.placeholder_label.winfo_exists():
+        if self.placeholder_label:
             self.placeholder_label.destroy()
             self.placeholder_label = None
 
-        if not self.all_templates:
-            self.placeholder_label = ctk.CTkLabel(
-                self.scroll_frame,
-                text="No se encontraron templates. Verificá la configuración.",
-                text_color="gray",
-            )
-            self.placeholder_label.grid(row=0, column=0, sticky="ew", pady=20)
-            self.selected_template = None
-            self._notify_change()
-            return
+        for card in self.cards:
+            card.destroy()
+        self.cards = []
 
         # Filtrar
         filter_value = self.filter_var.get()
@@ -136,10 +123,18 @@ class Step2Template(ctk.CTkFrame):
             filtered = self.all_templates
         else:
             filtered = [
-                t
-                for t in self.all_templates
-                if self._category_label(t) == filter_value
+                t for t in self.all_templates if self._category_label(t) == filter_value
             ]
+
+        # Si no hay templates, mostrar placeholder y salir
+        if not filtered:
+            self.placeholder_label = ctk.CTkLabel(
+                self.scroll_frame,
+                text="No se encontraron templates. Verificá la configuración.",
+                text_color="gray",
+            )
+            self.placeholder_label.grid(row=0, column=0, sticky="ew", pady=20)
+            return
 
         # Recrear cards
         for index, template in enumerate(filtered):
@@ -218,9 +213,7 @@ class Step2Template(ctk.CTkFrame):
         if templates_dir and templates_dir.exists() and templates_dir.is_dir():
             manager = TemplateManager(templates_dir)
             templates = manager.discover_templates()
-            templates.sort(
-                key=lambda t: (t.get("category", ""), t.get("name", ""))
-            )
+            templates.sort(key=lambda t: (t.get("category", ""), t.get("name", "")))
             self.all_templates = templates
         else:
             self.all_templates = []
