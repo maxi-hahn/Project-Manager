@@ -11,7 +11,8 @@ class ConfigManager:
         "projects_root": "",
         "resources_root": "",
         "default_location": "",
-        "default_editor": "vscode",
+        "editors": [],
+        "custom_editors": [],
         "auto_install_dependencies": True,
     }
 
@@ -34,7 +35,24 @@ class ConfigManager:
             content = self.config_path.read_text(encoding="utf-8")
             data = json.loads(content)
             if isinstance(data, dict):
+                needs_save = False
+                if "editors" not in data:
+                    legacy_val = data.get("default_editor")
+                    if legacy_val and legacy_val != "none":
+                        data["editors"] = [legacy_val]
+                    else:
+                        data["editors"] = []
+
+                if "default_editor" in data:
+                    del data["default_editor"]
+                    needs_save = True
+
+                if "custom_editors" not in data:
+                    data["custom_editors"] = []
+
                 self.config = data
+                if needs_save:
+                    self.save()
                 return True
             else:
                 self.config = {}

@@ -43,7 +43,8 @@ class ProjectManagerApp(ctk.CTk):
         self.projects_root: Path | None = None
         self.resources_root: Path | None = None
         self.resource_dirs: dict = {}
-        self.default_editor: str = "vscode"
+        self.editors: list[str] = []
+        self.custom_editors: list[dict] = []
         self.auto_install_dependencies: bool = True
 
         # Estado del wizard
@@ -111,7 +112,8 @@ class ProjectManagerApp(ctk.CTk):
         self.projects_root = Path(projects_root)
         self.resources_root = Path(resources_root)
         self.resource_dirs = get_resource_dirs(self.resources_root)
-        self.default_editor = config.get("default_editor", "vscode")
+        self.editors = config.get("editors", [])
+        self.custom_editors = config.get("custom_editors", [])
         self.auto_install_dependencies = config.get(
             "auto_install_dependencies", True
         )
@@ -439,7 +441,8 @@ class ProjectManagerApp(ctk.CTk):
             "config": self.screens[2].get_selection(),
             "projects_root": str(self.projects_root) if self.projects_root else "",
             "default_location": self.config_manager.get("default_location", ""),
-            "default_editor": self.default_editor,
+            "editors": self.editors,
+            "custom_editors": self.custom_editors,
             "auto_install_dependencies": self.auto_install_dependencies,
         }
         CreateProjectModal(self, data)

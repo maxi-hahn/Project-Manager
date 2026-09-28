@@ -1,15 +1,10 @@
-import customtkinter as ctk
 from pathlib import Path
 from tkinter import filedialog, messagebox
+import customtkinter as ctk
 
-EDITOR_OPTIONS = [
-    ("VS Code", "vscode"),
-    ("PyCharm", "pycharm"),
-    ("Cursor", "cursor"),
-    ("Ninguno", "none"),
-]
-EDITOR_LABEL_TO_VALUE = {label: val for label, val in EDITOR_OPTIONS}
-EDITOR_VALUE_TO_LABEL = {val: label for label, val in EDITOR_OPTIONS}
+from src.core.editors import get_available_known_editors
+from src.ui.components.custom_editor_dialog import CustomEditorDialog
+from src.ui.components.editor_instructions_dialog import EditorInstructionsDialog
 
 
 class SettingsDialog(ctk.CTkToplevel):
@@ -52,11 +47,10 @@ class SettingsDialog(ctk.CTkToplevel):
             value=config.get("default_location", "")
         )
 
-        current_editor_val = config.get("default_editor", "vscode")
-        current_editor_label = EDITOR_VALUE_TO_LABEL.get(
-            current_editor_val, "VS Code"
-        )
-        self.editor_var = ctk.StringVar(value=current_editor_label)
+        self.saved_editors = config.get("editors", [])
+        self.custom_editors = list(config.get("custom_editors", []))
+        self.known_editor_vars = {}
+        self.custom_editor_vars = {}
 
         self.auto_install_var = ctk.BooleanVar(
             value=config.get("auto_install_dependencies", True)
@@ -89,7 +83,7 @@ class SettingsDialog(ctk.CTkToplevel):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
-        scroll_frame = ctk.CTkScrollableFrame(self, width=540, height=520)
+        scroll_frame = ctk.CTkScrollableFrame(self, width=560, height=540)
         scroll_frame.grid(row=0, column=0, sticky="nsew", padx=15, pady=15)
         scroll_frame.grid_columnconfigure(0, weight=1)
 
@@ -244,20 +238,18 @@ class SettingsDialog(ctk.CTkToplevel):
         )
         self.location_dropdown.pack(fill="x", padx=10, pady=(0, 10))
 
-        # 6. Preferred Editor Field
+        # 6. Editores de código Section
         ctk.CTkLabel(
             scroll_frame,
-            text="Editor preferido:",
+            text="Editores de código",
             font=ctk.CTkFont(weight="bold"),
             anchor="w",
         ).pack(fill="x", padx=10, pady=(5, 2))
 
-        self.editor_dropdown = ctk.CTkOptionMenu(
-            scroll_frame,
-            variable=self.editor_var,
-            values=[label for label, _ in EDITOR_OPTIONS],
-        )
-        self.editor_dropdown.pack(fill="x", padx=10, pady=(0, 10))
+        self.editors_container = ctk.CTkFrame(scroll_frame)
+        self.editors_container.pack(fill="x", padx=10, pady=(0, 10))
+
+        self._render_editors_section()
 
         # 7. Auto-install Dependencies Checkbox
         self.auto_install_cb = ctk.CTkCheckBox(
@@ -290,6 +282,109 @@ class SettingsDialog(ctk.CTkToplevel):
             command=self._on_save_click,
         )
         save_btn.grid(row=0, column=2)
+
+    def _render_editors_section(self):
+        """Renders known available editors and custom editors with action buttons."""
+        for widget in self.editors_container.winfo_children():
+            widget.destroy()
+
+        available_known = get_available_known_editors()
+
+        if available_known:
+            for editor in available_known:
+                key = editor["key"]
+                name = editor["name"]
+                if key not in self.known_editor_vars:
+                    is_selected = key in self.saved_editors
+                    self.known_editor_vars[key] = ctk.BooleanVar(value=is_selected)
+
+                cb = ctk.CTkCheckBox(
+                    self.editors_container,
+                    text=name,
+                    variable=self.known_editor_vars[key],
+                )
+                cb.pack(fill="x", padx=10, pady=4)
+        else:
+            no_avail_label = ctk.CTkLabel(
+                self.editors_container,
+                text="No se detectaron editores conocidos en el PATH del sistema.",
+                text_color="gray",
+                font=ctk.CTkFont(size=11),
+                anchor="w",
+            )
+            no_avail_label.pack(fill="x", padx=10, pady=4)
+
+        if self.custom_editors:
+            for c_editor in self.custom_editors:
+                cmd = c_editor["command"]
+                name = c_editor["name"]
+                if cmd not in self.custom_editor_vars:
+                    self.custom_editor_vars[cmd] = ctk.BooleanVar(value=True)
+
+                row_frame = ctk.CTkFrame(self.editors_container, fg_color="transparent")
+                row_frame.pack(fill="x", padx=10, pady=2)
+                row_frame.grid_columnconfigure(0, weight=1)
+
+                cb = ctk.CTkCheckBox(
+                    row_frame,
+                    text=name,
+                    variable=self.custom_editor_vars[cmd],
+                )
+                cb.grid(row=0, column=0, sticky="w")
+
+                del_btn = ctk.CTkButton(
+                    row_frame,
+                    text="✕",
+                    width=26,
+                    height=24,
+                    fg_color="#ff4d4d",
+                    hover_color="#cc0000",
+                    command=lambda c=c_editor: self._remove_custom_editor(c),
+                )
+                del_btn.grid(row=0, column=1, sticky="e")
+
+        btn_box = ctk.CTkFrame(self.editors_container, fg_color="transparent")
+        btn_box.pack(fill="x", padx=10, pady=(10, 8))
+
+        add_custom_btn = ctk.CTkButton(
+            btn_box,
+            text="Agregar editor personalizado",
+            command=self._open_custom_editor_dialog,
+            width=190,
+        )
+        add_custom_btn.pack(side="left", padx=(0, 10))
+
+        help_btn = ctk.CTkButton(
+            btn_box,
+            text="¿No ves tu editor? Ver cómo habilitarlo",
+            command=self._open_instructions_dialog,
+            fg_color="transparent",
+            border_width=1,
+            text_color=("gray10", "gray90"),
+            width=220,
+        )
+        help_btn.pack(side="left")
+
+    def _remove_custom_editor(self, editor_dict):
+        if editor_dict in self.custom_editors:
+            self.custom_editors.remove(editor_dict)
+            cmd = editor_dict.get("command")
+            if cmd in self.custom_editor_vars:
+                del self.custom_editor_vars[cmd]
+            self._render_editors_section()
+
+    def _open_custom_editor_dialog(self):
+        CustomEditorDialog(self, on_save=self._on_custom_editor_added)
+
+    def _on_custom_editor_added(self, new_editor):
+        exists = any(e["command"] == new_editor["command"] for e in self.custom_editors)
+        if not exists:
+            self.custom_editors.append(new_editor)
+            self.custom_editor_vars[new_editor["command"]] = ctk.BooleanVar(value=True)
+            self._render_editors_section()
+
+    def _open_instructions_dialog(self):
+        EditorInstructionsDialog(self)
 
     def _update_location_dropdown(self):
         """Updates the default_location dropdown based on current projects_root subfolders."""
@@ -425,14 +520,25 @@ class SettingsDialog(ctk.CTkToplevel):
             )
             return
 
+        selected_editors = [
+            key for key, var in self.known_editor_vars.items() if var.get()
+        ]
+
+        selected_custom_editors = [
+            e
+            for e in self.custom_editors
+            if self.custom_editor_vars.get(
+                e["command"], ctk.BooleanVar(value=True)
+            ).get()
+        ]
+
         config = {
             "user_name": user_name,
             "projects_root": str(self.projects_root_path),
             "resources_root": str(self.resources_root_path),
             "default_location": default_loc,
-            "default_editor": EDITOR_LABEL_TO_VALUE.get(
-                self.editor_var.get(), "vscode"
-            ),
+            "editors": selected_editors,
+            "custom_editors": selected_custom_editors,
             "auto_install_dependencies": self.auto_install_var.get(),
         }
 

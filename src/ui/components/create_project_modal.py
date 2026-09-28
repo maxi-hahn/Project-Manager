@@ -5,6 +5,7 @@ from pathlib import Path
 
 import customtkinter as ctk
 
+from src.core.editors import get_editor_by_key, open_in_editor
 from src.logic.project_builder import build_project
 
 # ============================================================
@@ -12,14 +13,14 @@ from src.logic.project_builder import build_project
 # ============================================================
 # Flujo de tres estados:
 #
-#   1. Confirmación  → muestra resumen y checkbox de VS Code.
-#   2. Progreso      → oculta checkbox y botón Cancelar,
+#   1. Confirmación  → muestra resumen y selector de editor.
+#   2. Progreso      → oculta selector y botón Cancelar,
 #                      muestra logs en tiempo real.
 #   3. Finalizado    → habilita el botón Cerrar.
 # ============================================================
 
 MODAL_WIDTH = 600
-MODAL_HEIGHT_CONFIRM = 260
+MODAL_HEIGHT_CONFIRM = 280
 MODAL_HEIGHT_PROGRESS = 500
 
 
@@ -34,6 +35,9 @@ class CreateProjectModal(ctk.CTkToplevel):
 
         # Whether the build succeeded (used to decide whether to close the app on Close)
         self._success: bool = False
+
+        # Map option labels to execution commands
+        self._editor_options_map: dict[str, str | None] = {}
 
         # Extract display data
         info = project_data.get("info", {})
@@ -105,24 +109,53 @@ class CreateProjectModal(ctk.CTkToplevel):
         )
 
         # --------------------------------------------------------
-        # VS Code checkbox (hidden during progress/finished states)
+        # Editor selection dropdown
         # --------------------------------------------------------
 
-        default_editor = self.project_data.get("default_editor", "vscode")
-        if default_editor == "none":
-            self.vscode_var = ctk.BooleanVar(value=False)
-        else:
-            self.vscode_var = ctk.BooleanVar(value=True)
+        editor_keys = self.project_data.get("editors", [])
+        custom_editors = self.project_data.get("custom_editors", [])
 
-        self.vscode_checkbox = ctk.CTkCheckBox(
-            self,
-            text="Abrir proyecto en VS Code al finalizar",
-            variable=self.vscode_var,
+        self._editor_options_map = {"No abrir": None}
+        options_list = ["No abrir"]
+
+        for key in editor_keys:
+            ed = get_editor_by_key(key)
+            if ed:
+                name = ed["name"]
+                cmd = ed["command"]
+                options_list.append(name)
+                self._editor_options_map[name] = cmd
+
+        for c_ed in custom_editors:
+            name = c_ed.get("name")
+            cmd = c_ed.get("command")
+            if name and cmd and name not in self._editor_options_map:
+                options_list.append(name)
+                self._editor_options_map[name] = cmd
+
+        self.editor_var = ctk.StringVar(value="No abrir")
+
+        self.editor_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.editor_frame.grid(
+            row=1, column=0, sticky="w", padx=24, pady=(0, 16)
         )
-        if default_editor != "none":
-            self.vscode_checkbox.grid(
-                row=1, column=0, sticky="w", padx=24, pady=(0, 16)
-            )
+
+        has_configured_editors = len(options_list) > 1
+
+        if has_configured_editors:
+            ctk.CTkLabel(
+                self.editor_frame,
+                text="¿Abrir con qué editor?",
+                font=ctk.CTkFont(size=12, weight="bold"),
+                anchor="w",
+            ).pack(side="top", anchor="w", pady=(0, 4))
+
+        self.editor_dropdown = ctk.CTkOptionMenu(
+            self.editor_frame,
+            variable=self.editor_var,
+            values=options_list,
+        )
+        self.editor_dropdown.pack(side="top", anchor="w")
 
         # --------------------------------------------------------
         # Log textbox (hidden initially, shown during progress)
@@ -174,9 +207,9 @@ class CreateProjectModal(ctk.CTkToplevel):
 
         self.title("Creando proyecto...")
 
-        # Hide the VS Code checkbox and Cancel button
-        if self.vscode_checkbox.winfo_manager():
-            self.vscode_checkbox.grid_forget()
+        # Hide the editor selector frame and Cancel button
+        if hasattr(self, "editor_frame") and self.editor_frame.winfo_manager():
+            self.editor_frame.grid_forget()
         self.cancel_button.grid_forget()
 
         # Disable the action button while the build is running
@@ -260,25 +293,19 @@ class CreateProjectModal(ctk.CTkToplevel):
     def _on_close(self):
         """Closes the modal. If the build succeeded, also closes the app."""
 
-        # Attempt to open VS Code when the project was created successfully
+        selected_option = self.editor_var.get()
+        command = self._editor_options_map.get(selected_option)
+
+        # Attempt to open the selected editor when project creation succeeded
         if (
             self._success
-            and self.vscode_var.get()
+            and command is not None
             and self._project_path is not None
         ):
-            if shutil.which("code"):
-                try:
-                    subprocess.Popen(
-                        ["code", str(self._project_path)], shell=True
-                    )
-                except Exception:
-                    self._append_log(
-                        "\n⚠ No se pudo abrir VS Code automáticamente."
-                    )
-            else:
+            launched = open_in_editor(command, str(self._project_path))
+            if not launched:
                 self._append_log(
-                    "\n⚠ VS Code no encontrado en el PATH. "
-                    "Abrí el proyecto manualmente."
+                    f"\n⚠ No se pudo abrir {selected_option} automáticamente."
                 )
 
         # Release the modal grab and destroy it
