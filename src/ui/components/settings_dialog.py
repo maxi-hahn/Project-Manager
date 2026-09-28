@@ -53,7 +53,7 @@ class SettingsDialog(ctk.CTkToplevel):
         self.custom_editor_vars = {}
 
         self.auto_install_var = ctk.BooleanVar(
-            value=config.get("auto_install_dependencies", True)
+            value=config.get("auto_install_dependencies", False)
         )
 
         self._build_ui(title_text)
@@ -252,12 +252,32 @@ class SettingsDialog(ctk.CTkToplevel):
         self._render_editors_section()
 
         # 7. Auto-install Dependencies Checkbox
-        self.auto_install_cb = ctk.CTkCheckBox(
+        ctk.CTkLabel(
             scroll_frame,
-            text="Instalar dependencias automáticamente al crear",
+            text="Instalar dependencias automáticamente al crear:",
+            font=ctk.CTkFont(weight="bold"),
+            anchor="w",
+        ).pack(fill="x", padx=10, pady=(5, 2))
+
+        auto_install_frame = ctk.CTkFrame(scroll_frame, fg_color="transparent")
+        auto_install_frame.pack(fill="x", padx=10, pady=(0, 15))
+
+        self.auto_install_cb = ctk.CTkCheckBox(
+            auto_install_frame,
+            text="",
             variable=self.auto_install_var,
+            width=24,
         )
-        self.auto_install_cb.pack(fill="x", padx=10, pady=(10, 15))
+        self.auto_install_cb.pack(side="left", padx=(0, 5))
+
+        auto_install_explanation = ctk.CTkLabel(
+            auto_install_frame,
+            text="(deja el proyecto listo para arrancar, pero demora mucho más la creación)",
+            font=ctk.CTkFont(size=11),
+            text_color="gray",
+            anchor="w",
+        )
+        auto_install_explanation.pack(side="left")
 
         # 8. Buttons Row
         btn_frame = ctk.CTkFrame(scroll_frame, fg_color="transparent")

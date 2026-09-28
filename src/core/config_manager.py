@@ -13,7 +13,7 @@ class ConfigManager:
         "default_location": "",
         "editors": [],
         "custom_editors": [],
-        "auto_install_dependencies": True,
+        "auto_install_dependencies": False,
         "github_last_visibility": "private",
     }
 

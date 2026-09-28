@@ -45,7 +45,7 @@ class ProjectManagerApp(ctk.CTk):
         self.resource_dirs: dict = {}
         self.editors: list[str] = []
         self.custom_editors: list[dict] = []
-        self.auto_install_dependencies: bool = True
+        self.auto_install_dependencies: bool = False
 
         # Estado del wizard
         self.current_step = 0
@@ -112,7 +112,7 @@ class ProjectManagerApp(ctk.CTk):
         self.editors = config.get("editors", [])
         self.custom_editors = config.get("custom_editors", [])
         self.auto_install_dependencies = config.get(
-            "auto_install_dependencies", True
+            "auto_install_dependencies", False
         )
 
         # Pass paths to screens
