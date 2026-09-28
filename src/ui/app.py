@@ -2,6 +2,7 @@ from pathlib import Path
 import customtkinter as ctk
 
 from config import PROJECTS_DIR, TEMPLATES_DIR, get_resource_dirs
+from src.__version__ import __version__
 from src.core.config_manager import ConfigManager
 from src.logic.tree_builder import build_tree, merge_trees, render_tree
 from src.template_manager import TemplateManager
@@ -20,7 +21,6 @@ from src.ui.screens.step4_summary import Step4Summary
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
 
-WINDOW_TITLE = "Project Manager"
 WINDOW_MIN_WIDTH = 1000
 WINDOW_MIN_HEIGHT = 700
 
@@ -34,7 +34,7 @@ class ProjectManagerApp(ctk.CTk):
     def __init__(self):
         super().__init__()
 
-        self.title(WINDOW_TITLE)
+        self.title(f"Project Manager v{__version__}")
         self.minsize(WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT)
         self.geometry(f"{WINDOW_MIN_WIDTH}x{WINDOW_MIN_HEIGHT}")
 
