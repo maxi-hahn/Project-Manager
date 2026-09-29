@@ -88,6 +88,7 @@ La primera vez que abras Project Manager, te va a pedir:
 
 El árbol de carpetas a la derecha se actualiza en tiempo real,
 mostrándote exactamente cómo va a quedar tu proyecto.
+![Preview del árbol de carpetas en tiempo real](assets/gui-step3.png)
 
 ![Modal de creación con opciones de editor y GitHub](assets/gui-modal-creation.png)
 
@@ -146,7 +147,6 @@ Para agregar un template:
 en cualquier archivo de texto. Van a ser reemplazados al crear el
 proyecto.
 
-![Preview del árbol de carpetas en tiempo real](assets/gui-step3.png)
 
 ## 🔧 Solución de problemas
 
