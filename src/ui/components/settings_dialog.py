@@ -1,3 +1,4 @@
+import threading
 from pathlib import Path
 from tkinter import filedialog, messagebox
 import customtkinter as ctk
@@ -15,6 +16,7 @@ class SettingsDialog(ctk.CTkToplevel):
         is_first_run=False,
         on_save=None,
         on_cancel=None,
+        on_templates_downloaded=None,
     ):
         super().__init__(master)
 
@@ -22,6 +24,7 @@ class SettingsDialog(ctk.CTkToplevel):
         self.is_first_run = is_first_run
         self.on_save = on_save
         self.on_cancel = on_cancel
+        self.on_templates_downloaded = on_templates_downloaded
 
         # Title & window configuration
         title_text = "Configuración inicial" if is_first_run else "Configuración"
@@ -222,6 +225,36 @@ class SettingsDialog(ctk.CTkToplevel):
             anchor="w",
         )
         self.res_warning_label.pack(fill="x", padx=10, pady=(0, 10))
+
+        # 4b. Download templates sub-section
+        dl_frame = ctk.CTkFrame(scroll_frame, fg_color="transparent")
+        dl_frame.pack(fill="x", padx=10, pady=(0, 10))
+
+        dl_title = ctk.CTkLabel(
+            dl_frame,
+            text="¿No tenés templates?",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            anchor="w",
+        )
+        dl_title.pack(fill="x", pady=(0, 4))
+
+        self.download_templates_btn = ctk.CTkButton(
+            dl_frame,
+            text="⬇ Descargar templates oficiales",
+            command=self._on_download_templates_click,
+            width=220,
+        )
+        self.download_templates_btn.pack(anchor="w", pady=(0, 4))
+
+        self.download_help_label = ctk.CTkLabel(
+            dl_frame,
+            text="",
+            font=ctk.CTkFont(size=11),
+            text_color="gray",
+            anchor="w",
+        )
+        self.download_help_label.pack(fill="x")
+        self._update_download_templates_button_state()
 
         # 5. Default Location Field
         ctk.CTkLabel(
@@ -490,6 +523,56 @@ class SettingsDialog(ctk.CTkToplevel):
                 text=str(self.resources_root_path), text_color="white"
             )
             self._check_resources_warning()
+            self._update_download_templates_button_state()
+
+    def _update_download_templates_button_state(self):
+        if self.resources_root_path:
+            self.download_templates_btn.configure(state="normal")
+            self.download_help_label.configure(
+                text="ℹ Se descargará la última versión desde GitHub."
+            )
+        else:
+            self.download_templates_btn.configure(state="disabled")
+            self.download_help_label.configure(
+                text="Primero elegí la carpeta de recursos."
+            )
+
+    def _on_download_templates_click(self):
+        if not self.resources_root_path:
+            return
+
+        dest = self.resources_root_path
+        confirm = messagebox.askyesno(
+            "Descargar templates",
+            f"Se descargarán los templates en:\n{dest}\n\n¿Continuar?",
+            parent=self,
+        )
+        if not confirm:
+            return
+
+        templates_folder = dest / "TEMPLATES"
+        overwrite = False
+        if templates_folder.exists() and templates_folder.is_dir():
+            overwrite_confirm = messagebox.askyesno(
+                "Sobreescribir templates",
+                "La carpeta ya contiene templates. ¿Sobreescribir?",
+                parent=self,
+            )
+            if not overwrite_confirm:
+                return
+            overwrite = True
+
+        DownloadProgressModal(
+            self,
+            destination=dest,
+            overwrite=overwrite,
+            on_success=self._on_download_success,
+        )
+
+    def _on_download_success(self):
+        self._check_resources_warning()
+        if self.on_templates_downloaded:
+            self.on_templates_downloaded(self.resources_root_path)
 
     def _on_save_click(self):
         user_name = self.user_name_var.get().strip()
@@ -582,3 +665,121 @@ class SettingsDialog(ctk.CTkToplevel):
                 self.destroy()
         else:
             self.destroy()
+
+
+class DownloadProgressModal(ctk.CTkToplevel):
+    def __init__(
+        self, master, destination: Path, overwrite: bool = False, on_success=None
+    ):
+        super().__init__(master)
+        self.destination = destination
+        self.overwrite = overwrite
+        self.on_success = on_success
+
+        self.title("Descargando templates")
+        self.geometry("460x320")
+        self.resizable(False, False)
+
+        self.grab_set()
+        self.transient(master)
+
+        self.grid_columnconfigure(0, weight=1)
+
+        # Header Title
+        header = ctk.CTkLabel(
+            self,
+            text="Descargando templates oficiales",
+            font=ctk.CTkFont(size=15, weight="bold"),
+            anchor="w",
+        )
+        header.pack(fill="x", padx=20, pady=(15, 10))
+
+        # Spinner
+        self.progress_bar = ctk.CTkProgressBar(self, mode="indeterminate")
+        self.progress_bar.pack(fill="x", padx=20, pady=(0, 10))
+        self.progress_bar.start()
+
+        # Status area
+        self.status_box = ctk.CTkTextbox(
+            self,
+            font=ctk.CTkFont(size=11, family="Consolas"),
+            height=110,
+            activate_scrollbars=True,
+        )
+        self.status_box.pack(fill="both", expand=True, padx=20, pady=(0, 10))
+        self.status_box.insert("1.0", "Descargando templates...\n")
+        self.status_box.configure(state="disabled")
+
+        # Help message below status
+        self.help_label = ctk.CTkLabel(
+            self,
+            text=(
+                "Revisá la página del proyecto cada tanto para ver si hay una versión nueva. "
+                "Para actualizar, simplemente volvé a tocar este botón."
+            ),
+            font=ctk.CTkFont(size=11),
+            text_color="gray",
+            wraplength=420,
+            justify="left",
+            anchor="w",
+        )
+        self.help_label.pack(fill="x", padx=20, pady=(0, 10))
+
+        # Finalizar button (disabled initially)
+        self.finish_btn = ctk.CTkButton(
+            self,
+            text="Finalizar",
+            width=110,
+            state="disabled",
+            command=self._on_finish_click,
+        )
+        self.finish_btn.pack(pady=(0, 15))
+
+        self.after(50, self._center_on_parent)
+
+        threading.Thread(target=self._run_download, daemon=True).start()
+
+    def _center_on_parent(self):
+        self.update_idletasks()
+        parent = self.master
+        px = parent.winfo_x()
+        py = parent.winfo_y()
+        pw = parent.winfo_width()
+        ph = parent.winfo_height()
+
+        mw = self.winfo_width()
+        mh = self.winfo_height()
+
+        x = px + (pw - mw) // 2
+        y = py + (ph - mh) // 2
+        self.geometry(f"+{x}+{y}")
+
+    def _append_status(self, message: str):
+        self.status_box.configure(state="normal")
+        self.status_box.insert("end", message + "\n")
+        self.status_box.see("end")
+        self.status_box.configure(state="disabled")
+
+    def log(self, message: str):
+        self.after(0, lambda: self._append_status(message))
+
+    def _run_download(self):
+        from src.core.templates_downloader import download_templates
+
+        res = download_templates(
+            destination=self.destination,
+            logger=self.log,
+            overwrite=self.overwrite,
+        )
+        self.after(0, lambda: self._on_download_finished(res))
+
+    def _on_download_finished(self, success: bool):
+        self.progress_bar.stop()
+        self.progress_bar.pack_forget()
+        self.finish_btn.configure(state="normal")
+
+        if success and self.on_success:
+            self.on_success()
+
+    def _on_finish_click(self):
+        self.destroy()

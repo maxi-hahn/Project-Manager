@@ -87,7 +87,14 @@ class ProjectManagerApp(ctk.CTk):
             is_first_run=True,
             on_save=self._on_initial_config_saved,
             on_cancel=self._on_initial_config_cancelled,
+            on_templates_downloaded=self._on_templates_downloaded,
         )
+
+    def _on_templates_downloaded(self, resources_root: Path | None = None):
+        if resources_root and len(self.screens) > 1:
+            resource_dirs = get_resource_dirs(resources_root)
+            self.screens[1].set_templates_dir(resource_dirs["templates"])
+        self._apply_config()
 
     def _on_initial_config_saved(self):
         self._apply_config()
@@ -456,6 +463,7 @@ class ProjectManagerApp(ctk.CTk):
             self.config_manager,
             is_first_run=False,
             on_save=self._apply_config,
+            on_templates_downloaded=self._on_templates_downloaded,
         )
 
 
