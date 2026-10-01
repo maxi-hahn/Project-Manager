@@ -86,10 +86,14 @@ class ProjectCreator:
 
             self._log("\n→ Copiando plantilla...")
 
-            shutil.copytree(
-                template_path,
-                project_path,
-                ignore=shutil.ignore_patterns("template.json"),
+            # Build the replacements dict early so file/folder names can be
+            # resolved at copy time (content placeholders are handled later).
+            _early_replacements = {
+                "{{PROJECT_NAME}}": project_name,
+                "{{DESCRIPTION}}": description,
+            }
+            self._copy_template_with_placeholders(
+                template_path, project_path, _early_replacements
             )
 
             self._log("✓ Plantilla copiada.")
@@ -102,6 +106,8 @@ class ProjectCreator:
                 self._log("→ Creando entorno virtual (.venv)...")
                 self._create_virtual_environment(project_path)
                 self._log("✓ Entorno virtual creado.")
+            elif template_runtime == "dotnet":
+                self._log("→ Runtime dotnet: sin instalación automática por ahora.")
 
             # ------------------------------------------------
             # 3. Run Tools
@@ -197,6 +203,55 @@ class ProjectCreator:
         self._pre_feature_package_json = None
 
         return project_path
+
+    # ========================================================
+    # COPIAR PLANTILLA CON SOPORTE DE PLACEHOLDERS EN NOMBRES
+    # ========================================================
+    # Recorre la carpeta de la plantilla y copia cada archivo y
+    # directorio al destino, reemplazando cualquier placeholder
+    # en los nombres de archivo y carpeta (ej. {{PROJECT_NAME}}).
+    #
+    # El contenido de los archivos se copia tal cual; los
+    # placeholders en el contenido son procesados más adelante
+    # por _replace_placeholders.
+    #
+    # Se omite template.json (metadatos de la plantilla).
+    # ========================================================
+
+    def _copy_template_with_placeholders(
+        self,
+        source: Path,
+        destination: Path,
+        replacements: dict[str, str],
+    ) -> None:
+        """Walk source tree and copy to destination, renaming files/folders
+        that contain placeholders like {{PROJECT_NAME}} in their names."""
+
+        def _apply_name_replacements(name: str) -> str:
+            for placeholder, value in replacements.items():
+                name = name.replace(placeholder, value)
+            return name
+
+        for root, dirs, files in os.walk(source):
+            root_path = Path(root)
+
+            # Compute this directory's path relative to source
+            relative_root = root_path.relative_to(source)
+
+            # Apply placeholder replacements to each path segment
+            new_parts = [_apply_name_replacements(part) for part in relative_root.parts]
+            dest_dir = destination.joinpath(*new_parts) if new_parts else destination
+
+            # Ensure the destination directory exists
+            dest_dir.mkdir(parents=True, exist_ok=True)
+
+            # Copy files, skipping template.json and applying name replacements
+            for file_name in files:
+                if file_name == "template.json":
+                    continue
+
+                new_file_name = _apply_name_replacements(file_name)
+                shutil.copy2(root_path / file_name, dest_dir / new_file_name)
 
     # ========================================================
     # CREAR ENTORNO VIRTUAL

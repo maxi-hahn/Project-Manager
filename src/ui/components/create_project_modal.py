@@ -22,7 +22,7 @@ from src.logic.project_builder import build_project
 # ============================================================
 
 MODAL_WIDTH = 600
-MODAL_HEIGHT_CONFIRM = 380
+MODAL_HEIGHT_CONFIRM = 450
 MODAL_HEIGHT_PROGRESS = 500
 
 
@@ -97,7 +97,7 @@ class CreateProjectModal(ctk.CTkToplevel):
         """Builds the full modal layout (confirmation state)."""
 
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(3, weight=1)
+        self.grid_rowconfigure(4, weight=1)
 
         # --------------------------------------------------------
         # Summary label (Row 0)
@@ -199,7 +199,33 @@ class CreateProjectModal(ctk.CTkToplevel):
             self.gh_note_label.pack(side="top", anchor="w")
 
         # --------------------------------------------------------
-        # Editor selection dropdown (Row 2)
+        # Install dependencies checkbox (Row 2)
+        # --------------------------------------------------------
+
+        # Default value comes from the global config forwarded via project_data.
+        default_auto_install = self.project_data.get("auto_install_dependencies", False)
+        self._install_deps_var = ctk.BooleanVar(value=default_auto_install)
+
+        self.install_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.install_frame.grid(row=2, column=0, sticky="w", padx=24, pady=(0, 16))
+
+        ctk.CTkLabel(
+            self.install_frame,
+            text="Instalar dependencias automáticamente:",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            anchor="w",
+        ).pack(side="top", anchor="w", pady=(0, 4))
+
+        self.install_checkbox = ctk.CTkCheckBox(
+            self.install_frame,
+            text="(hace que el proyecto quede listo para arrancar, pero tarda más)",
+            variable=self._install_deps_var,
+            font=ctk.CTkFont(size=11),
+        )
+        self.install_checkbox.pack(side="top", anchor="w")
+
+        # --------------------------------------------------------
+        # Editor selection dropdown (Row 3)
         # --------------------------------------------------------
 
         editor_keys = self.project_data.get("editors", [])
@@ -227,7 +253,7 @@ class CreateProjectModal(ctk.CTkToplevel):
 
         self.editor_frame = ctk.CTkFrame(self, fg_color="transparent")
         self.editor_frame.grid(
-            row=2, column=0, sticky="w", padx=24, pady=(0, 16)
+            row=3, column=0, sticky="w", padx=24, pady=(0, 16)
         )
 
         has_configured_editors = len(options_list) > 1
@@ -248,7 +274,7 @@ class CreateProjectModal(ctk.CTkToplevel):
         self.editor_dropdown.pack(side="top", anchor="w")
 
         # --------------------------------------------------------
-        # Log textbox (Row 3, hidden initially, shown during progress)
+        # Log textbox (Row 4, hidden initially, shown during progress)
         # --------------------------------------------------------
 
         self.log_textbox = ctk.CTkTextbox(
@@ -260,11 +286,11 @@ class CreateProjectModal(ctk.CTkToplevel):
         # Not placed in the grid until creation begins
 
         # --------------------------------------------------------
-        # Button row (Row 4)
+        # Button row (Row 5)
         # --------------------------------------------------------
 
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
-        btn_frame.grid(row=4, column=0, sticky="ew", padx=24, pady=(0, 20))
+        btn_frame.grid(row=5, column=0, sticky="ew", padx=24, pady=(0, 20))
         btn_frame.grid_columnconfigure(0, weight=1)
 
         self.cancel_button = ctk.CTkButton(
@@ -308,6 +334,8 @@ class CreateProjectModal(ctk.CTkToplevel):
         # Hide options frames and Cancel button
         if hasattr(self, "gh_frame") and self.gh_frame.winfo_manager():
             self.gh_frame.grid_forget()
+        if hasattr(self, "install_frame") and self.install_frame.winfo_manager():
+            self.install_frame.grid_forget()
         if hasattr(self, "editor_frame") and self.editor_frame.winfo_manager():
             self.editor_frame.grid_forget()
         self.cancel_button.grid_forget()
@@ -317,7 +345,7 @@ class CreateProjectModal(ctk.CTkToplevel):
 
         # Show the log textbox
         self.log_textbox.grid(
-            row=3, column=0, sticky="nsew", padx=24, pady=(0, 12)
+            row=4, column=0, sticky="nsew", padx=24, pady=(0, 12)
         )
 
         # Expand to progress-state size and re-center
@@ -452,9 +480,10 @@ class CreateProjectModal(ctk.CTkToplevel):
             config = self.project_data.get("config", {})
             projects_root = self.project_data.get("projects_root")
             default_location = self.project_data.get("default_location", "")
-            auto_install = self.project_data.get(
-                "auto_install_dependencies", True
-            )
+
+            # Use the per-project checkbox value, captured on the main thread
+            # before the build started (overrides the global config).
+            auto_install = self._install_deps_var.get()
 
             location = info.get("location", default_location)
 
