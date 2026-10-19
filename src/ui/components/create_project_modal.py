@@ -25,6 +25,17 @@ MODAL_WIDTH = 600
 MODAL_HEIGHT_CONFIRM = 450
 MODAL_HEIGHT_PROGRESS = 500
 
+# Progress stages: (start_percent, label)
+STAGES = [
+    (0,   "Copiando plantilla"),
+    (10,  "Instalando dependencias"),
+    (40,  "Copiando features y entornos"),
+    (50,  "Generando configuración"),
+    (55,  "Creando repositorio en GitHub"),
+    (75,  "Subiendo archivos"),
+    (100, "Completado"),
+]
+
 
 class CreateProjectModal(ctk.CTkToplevel):
     def __init__(self, master, project_data: dict):
@@ -41,6 +52,15 @@ class CreateProjectModal(ctk.CTkToplevel):
 
         # Whether the build succeeded (used to decide whether to close the app on Close)
         self._success: bool = False
+
+        self._auto_install: bool = False
+        self._template_runtime: str = ""
+        self._auto_close_app: bool = True
+
+        self._current_stage_index: int = 0
+        self._progress_bar = None      # set in _build_ui
+        self._stage_label = None       # set in _build_ui
+        self._progress_frame = None    # set in _build_ui
 
         # Map option labels to execution commands
         self._editor_options_map: dict[str, str | None] = {}
@@ -202,25 +222,32 @@ class CreateProjectModal(ctk.CTkToplevel):
         # Install dependencies checkbox (Row 2)
         # --------------------------------------------------------
 
-        # Default value comes from the global config forwarded via project_data.
-        default_auto_install = self.project_data.get("auto_install_dependencies", False)
+        default_auto_install = self.project_data.get(
+            "auto_install_dependencies", False
+        )
         self._install_deps_var = ctk.BooleanVar(value=default_auto_install)
 
         self.install_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.install_frame.grid(row=2, column=0, sticky="w", padx=24, pady=(0, 16))
+        self.install_frame.grid(
+            row=2, column=0, sticky="w", padx=24, pady=(0, 16)
+        )
 
         ctk.CTkLabel(
             self.install_frame,
-            text="Instalar dependencias automáticamente:",
+            text="Instalar dependencias en segundo plano:",
             font=ctk.CTkFont(size=12, weight="bold"),
             anchor="w",
         ).pack(side="top", anchor="w", pady=(0, 4))
 
         self.install_checkbox = ctk.CTkCheckBox(
             self.install_frame,
-            text="(hace que el proyecto quede listo para arrancar, pero tarda más)",
+            text=(
+                "(se instalan mientras trabajás, pero no vas a poder "
+                "correr el proyecto hasta que terminen)"
+            ),
             variable=self._install_deps_var,
             font=ctk.CTkFont(size=11),
+            command=self._on_install_deps_toggle,
         )
         self.install_checkbox.pack(side="top", anchor="w")
 
@@ -311,6 +338,21 @@ class CreateProjectModal(ctk.CTkToplevel):
         )
         self.action_button.grid(row=0, column=2)
 
+        self._progress_frame = ctk.CTkFrame(self, fg_color="transparent")
+
+        self._stage_label = ctk.CTkLabel(
+            self._progress_frame,
+            text="",
+            font=ctk.CTkFont(size=11),
+            text_color="gray",
+            anchor="w",
+        )
+        self._stage_label.pack(fill="x", padx=24, pady=(0, 4))
+
+        self._progress_bar = ctk.CTkProgressBar(self._progress_frame)
+        self._progress_bar.set(0)
+        self._progress_bar.pack(fill="x", padx=24, pady=(0, 12))
+
         # Apply confirmation-state geometry
         self.geometry(f"{MODAL_WIDTH}x{MODAL_HEIGHT_CONFIRM}")
 
@@ -321,6 +363,130 @@ class CreateProjectModal(ctk.CTkToplevel):
                 self.repo_name_frame.pack(side="top", anchor="w", pady=(8, 0))
             else:
                 self.repo_name_frame.pack_forget()
+
+    def _on_install_deps_toggle(self):
+        """
+        Called when the user toggles the install-dependencies checkbox.
+        If it was just checked, show the warning modal.
+        """
+        if self._install_deps_var.get():
+            accepted = self._show_install_warning()
+            if not accepted:
+                self._install_deps_var.set(False)
+
+    def _show_install_warning(self) -> bool:
+        """
+        Shows a modal warning about installing dependencies in the
+        background. Returns True if the user accepted, False if
+        canceled.
+        """
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Atención")
+        dialog.resizable(False, False)
+        dialog.grab_set()
+        dialog.transient(self)
+
+        # Warning border
+        dialog.configure(fg_color=("#1a0a0a", "#1a0a0a"))
+
+        container = ctk.CTkFrame(
+            dialog,
+            fg_color=("#1a0a0a", "#1a0a0a"),
+            border_width=2,
+            border_color=("#cc3333", "#cc3333"),
+            corner_radius=8,
+        )
+        container.pack(fill="both", expand=True, padx=12, pady=12)
+
+        # Title
+        title = ctk.CTkLabel(
+            container,
+            text="⚠ Atención",
+            font=ctk.CTkFont(size=16, weight="bold"),
+            text_color=("#ff5555", "#ff5555"),
+            anchor="w",
+        )
+        title.pack(fill="x", padx=20, pady=(20, 12))
+
+        # Message
+        message = (
+            "Se van a instalar las dependencias del proyecto en "
+            "segundo plano.\n\n"
+            "Podés empezar a trabajar en el proyecto mientras se "
+            "instalan, pero NO vas a poder:\n\n"
+            "  • Ejecutar el proyecto (npm run dev, python run.py, etc.).\n"
+            "  • Modificar archivos de dependencias (package.json,\n"
+            "    requirements.txt, etc.).\n"
+            "  • Hacer commit o push hasta que termine la instalación.\n\n"
+            "Al finalizar, vas a recibir una notificación. La "
+            "aplicación se cerrará automáticamente 5 segundos después.\n\n"
+            "¿Estás de acuerdo?"
+        )
+
+        body = ctk.CTkLabel(
+            container,
+            text=message,
+            font=ctk.CTkFont(size=12),
+            justify="left",
+            anchor="w",
+            wraplength=460,
+        )
+        body.pack(fill="x", padx=20, pady=(0, 20))
+
+        # Result
+        result = {"accepted": False}
+
+        def on_cancel():
+            result["accepted"] = False
+            dialog.destroy()
+
+        def on_accept():
+            result["accepted"] = True
+            dialog.destroy()
+
+        # Buttons
+        btn_frame = ctk.CTkFrame(container, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=20, pady=(0, 20))
+
+        cancel_btn = ctk.CTkButton(
+            btn_frame,
+            text="Cancelar",
+            width=120,
+            fg_color="gray30",
+            hover_color="gray20",
+            command=on_cancel,
+        )
+        cancel_btn.pack(side="right", padx=(10, 0))
+
+        accept_btn = ctk.CTkButton(
+            btn_frame,
+            text="Aceptar",
+            width=120,
+            fg_color="#cc3333",
+            hover_color="#aa2222",
+            command=on_accept,
+        )
+        accept_btn.pack(side="right")
+
+        # Handle window close (X) as cancel
+        dialog.protocol("WM_DELETE_WINDOW", on_cancel)
+
+        # Center on parent
+        dialog.update_idletasks()
+        px = self.winfo_x()
+        py = self.winfo_y()
+        pw = self.winfo_width()
+        ph = self.winfo_height()
+        dw = dialog.winfo_width()
+        dh = dialog.winfo_height()
+        x = px + (pw - dw) // 2
+        y = py + (ph - dh) // 2
+        dialog.geometry(f"+{x}+{y}")
+
+        # Block and wait for the dialog to close
+        dialog.wait_window()
+
+        return result["accepted"]
 
     # ============================================================
     # STATE TRANSITIONS
@@ -348,6 +514,13 @@ class CreateProjectModal(ctk.CTkToplevel):
             row=4, column=0, sticky="nsew", padx=24, pady=(0, 12)
         )
 
+        self._progress_frame.grid(
+            row=6, column=0, sticky="ew", pady=(0, 8)
+        )
+        self._current_stage_index = 0
+        self._stage_label.configure(text=STAGES[0][1])
+        self._progress_bar.set(0)
+
         # Expand to progress-state size and re-center
         self.geometry(f"{MODAL_WIDTH}x{MODAL_HEIGHT_PROGRESS}")
         self.after(50, self._center_on_parent)
@@ -372,6 +545,13 @@ class CreateProjectModal(ctk.CTkToplevel):
 
         self._append_log(final_message)
 
+        if self._progress_bar:
+            if success:
+                self._progress_bar.set(1)
+                self._stage_label.configure(text="✓ Completado")
+            else:
+                self._stage_label.configure(text="✗ Error")
+
         # Show a modal error notification on failure
         if not success:
             self.after(
@@ -383,19 +563,109 @@ class CreateProjectModal(ctk.CTkToplevel):
                 ),
             )
 
+        # Auto-open editor on success (if one was selected)
+        if success:
+            self._open_selected_editor()
+
+        if success and self._auto_install:
+            self.master.start_background_install(
+                self._project_path, self._template_runtime
+            )
+            # Don't close the master app, only the modal.
+            self._auto_close_app = False
+        else:
+            self._auto_close_app = True
+
+        if success:
+            # Auto-close after a short delay so the user can read the logs
+            self.after(1500, self._auto_close)
+
         # Enable the close button
         self.action_button.configure(state="normal", command=self._on_close)
+
+    def _open_selected_editor(self):
+        """Opens the selected editor with the created project, if any."""
+        if not self._project_path:
+            return
+
+        selected_option = self.editor_var.get()
+        command = self._editor_options_map.get(selected_option)
+
+        if command is None:
+            return
+
+        launched = open_in_editor(command, str(self._project_path))
+        if not launched:
+            self._append_log(
+                f"\n⚠ No se pudo abrir {selected_option} automáticamente."
+            )
+
+    def _auto_close(self):
+        """Closes the modal and the app after a successful build."""
+        if not self._success:
+            return
+        try:
+            if not self.winfo_exists():
+                return
+        except Exception:
+            pass
+        self._on_close()
 
     # ============================================================
     # LOGGING
     # ============================================================
 
     def _append_log(self, message: str):
-        """Appends a message to the log textbox. Must be called from the main thread."""
+        """Appends a message to the log textbox and updates the stage."""
+        self._update_stage_from_message(message)
+
         self.log_textbox.configure(state="normal")
         self.log_textbox.insert("end", message + "\n")
         self.log_textbox.see("end")
         self.log_textbox.configure(state="disabled")
+
+    def _update_stage_from_message(self, message: str) -> None:
+        """Updates the progress bar based on the log line content."""
+        if not self._progress_bar or not self._stage_label:
+            return
+
+        msg = message.lower()
+        new_index = self._current_stage_index
+
+        if "copiando plantilla" in msg:
+            new_index = 0
+        elif (
+            "instalando dependencias" in msg
+            or "instalando/configurando" in msg
+            or "pip install" in msg
+            or "npm install" in msg
+            or "reinstalando" in msg
+        ):
+            new_index = 1
+        elif (
+            "copiando feature" in msg
+            or "copiando tecnología" in msg
+            or "copiando archivos de" in msg
+            or "configurando docker" in msg
+        ):
+            new_index = 2
+        elif (
+            "generando configuración" in msg
+            or "actualizando requirements" in msg
+        ):
+            new_index = 3
+        elif "creando repositorio en github" in msg:
+            new_index = 4
+        elif "subiendo los archivos" in msg:
+            new_index = 5
+        elif "repositorio creado" in msg:
+            new_index = 6
+
+        if new_index != self._current_stage_index:
+            self._current_stage_index = new_index
+            start_percent = STAGES[new_index][0]
+            self._progress_bar.set(start_percent / 100)
+            self._stage_label.configure(text=STAGES[new_index][1])
 
     def _thread_safe_log(self, message: str):
         """Logger callback that can be called safely from a background thread."""
@@ -437,31 +707,13 @@ class CreateProjectModal(ctk.CTkToplevel):
 
     def _on_close(self):
         """Closes the modal. If the build succeeded, also closes the app."""
-
-        selected_option = self.editor_var.get()
-        command = self._editor_options_map.get(selected_option)
-
-        # Attempt to open the selected editor when project creation succeeded
-        if (
-            self._success
-            and command is not None
-            and self._project_path is not None
-        ):
-            launched = open_in_editor(command, str(self._project_path))
-            if not launched:
-                self._append_log(
-                    f"\n⚠ No se pudo abrir {selected_option} automáticamente."
-                )
-
-        # Release the modal grab and destroy it
         try:
             self.grab_release()
         except Exception:
             pass
         self.destroy()
 
-        # If the build failed, keep the main app open so the user can retry
-        if self._success:
+        if self._success and self._auto_close_app:
             self.master.quit()
             self.master.destroy()
 
@@ -481,9 +733,9 @@ class CreateProjectModal(ctk.CTkToplevel):
             projects_root = self.project_data.get("projects_root")
             default_location = self.project_data.get("default_location", "")
 
-            # Use the per-project checkbox value, captured on the main thread
-            # before the build started (overrides the global config).
-            auto_install = self._install_deps_var.get()
+            # Capture background install settings before calling build_project
+            self._auto_install = self._install_deps_var.get()
+            self._template_runtime = template.get("runtime", "python").lower()
 
             location = info.get("location", default_location)
 
@@ -504,8 +756,8 @@ class CreateProjectModal(ctk.CTkToplevel):
                 environments=config.get("environments", []),
                 technologies=config.get("technologies", []),
                 template_language=template.get("language", "").lower(),
-                template_runtime=template.get("runtime", "python").lower(),
-                install_dependencies=auto_install,
+                template_runtime=self._template_runtime,
+                install_dependencies=False,
                 logger=self._thread_safe_log,
             )
 

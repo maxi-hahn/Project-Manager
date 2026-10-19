@@ -9,10 +9,10 @@ from typing import Callable
 from src.template_manager import TemplateManager
 
 TEMPLATES_REPO_URL = (
-    "https://github.com/maxi-hahn/project-manager-templates"
+    "https://github.com/maxi-hahn/Project-manager-templates"
 )
 TEMPLATES_ZIP_URL = (
-    "https://github.com/maxi-hahn/project-manager-templates/"
+    "https://github.com/maxi-hahn/Project-manager-templates/"
     "archive/refs/heads/main.zip"
 )
 

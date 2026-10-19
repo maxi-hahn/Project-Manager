@@ -1,4 +1,12 @@
+import subprocess
+import threading
 from pathlib import Path
+
+try:
+    import winsound
+except ImportError:
+    winsound = None
+
 import customtkinter as ctk
 
 from config import PROJECTS_DIR, TEMPLATES_DIR, get_resource_dirs
@@ -169,7 +177,10 @@ class ProjectManagerApp(ctk.CTk):
         header = ctk.CTkFrame(self, height=60, corner_radius=0)
         header.grid(row=0, column=0, columnspan=2, sticky="ew")
         header.grid_columnconfigure(0, weight=1)
+        header.grid_columnconfigure(1, weight=0)  # Middle column
+        header.grid_columnconfigure(2, weight=1)  # Right column
 
+        # Title (left)
         title = ctk.CTkLabel(
             header,
             text="Project Manager",
@@ -177,13 +188,23 @@ class ProjectManagerApp(ctk.CTk):
         )
         title.grid(row=0, column=0, padx=20, pady=10, sticky="w")
 
+        # Status label (middle)
+        self.status_label = ctk.CTkLabel(
+            header,
+            text="",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            text_color=("#f59e0b", "#f59e0b"),  # Orange-ish
+        )
+        self.status_label.grid(row=0, column=1, padx=20, pady=10)
+
+        # Settings button (right)
         settings_button = ctk.CTkButton(
             header,
             text="Ajustes",
             width=100,
             command=self._on_settings_click,
         )
-        settings_button.grid(row=0, column=1, padx=20, pady=10, sticky="e")
+        settings_button.grid(row=0, column=2, padx=20, pady=10, sticky="e")
 
     # ========================================================
     # CONTENIDO PRINCIPAL (izquierda)
@@ -438,6 +459,139 @@ class ProjectManagerApp(ctk.CTk):
     # ========================================================
     # ACCIONES
     # ========================================================
+
+    def start_background_install(self, project_path: Path, runtime: str):
+        """Starts installing dependencies in the background."""
+        self.status_label.configure(
+            text="⏳ Instalando dependencias...", text_color=("#f59e0b", "#f59e0b")
+        )
+
+        def worker():
+            try:
+                if runtime == "node":
+                    cmd = "npm install"
+                elif runtime == "python":
+                    python_exe = project_path / ".venv" / "Scripts" / "python.exe"
+                    if not python_exe.exists():
+                        bin_exe = project_path / ".venv" / "bin" / "python"
+                        if bin_exe.exists():
+                            python_exe = bin_exe
+                    cmd = f'"{python_exe}" -m pip install -r requirements.txt'
+                else:
+                    self.after(0, self._on_background_install_done, True, "")
+                    return
+
+                res = subprocess.run(
+                    cmd,
+                    cwd=project_path,
+                    capture_output=True,
+                    text=True,
+                    shell=True,
+                )
+                success = res.returncode == 0
+                error_msg = res.stderr if not success else ""
+                self.after(0, self._on_background_install_done, success, error_msg)
+            except Exception as e:
+                self.after(0, self._on_background_install_done, False, str(e))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_background_install_done(self, success: bool, error_msg: str):
+        """Called when the background install finishes."""
+        if success:
+            self.status_label.configure(
+                text="✓ Dependencias instaladas", text_color=("#22c55e", "#22c55e")
+            )
+            self._show_install_notification(success=True, error_msg="")
+        else:
+            self.status_label.configure(
+                text="✗ Error en dependencias", text_color=("#ef4444", "#ef4444")
+            )
+            self._show_install_notification(success=False, error_msg=error_msg)
+
+    def _show_install_notification(self, success: bool, error_msg: str):
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Dependencias")
+        dialog.geometry("420x280")
+        dialog.resizable(False, False)
+        dialog.attributes("-topmost", True)
+        dialog.grab_set()
+        dialog.transient(self)
+
+        try:
+            import winsound
+            winsound.MessageBeep()
+        except Exception:
+            pass
+
+        if success:
+            title = "✓ Proyecto listo"
+            body = (
+                "Las dependencias se instalaron correctamente.\n\n"
+                "Ya podés ejecutar el proyecto."
+            )
+            color = "#22c55e"
+        else:
+            title = "✗ Error en dependencias"
+            body = (
+                "No pudimos instalar las dependencias.\n"
+                "Pedimos disculpas por el inconveniente.\n\n"
+                "Ejecutá manualmente en la carpeta del proyecto:\n"
+                "  npm install   (Node)\n"
+                "  pip install -r requirements.txt   (Python)"
+            )
+            color = "#ef4444"
+
+        ctk.CTkLabel(
+            dialog, text=title,
+            font=ctk.CTkFont(size=18, weight="bold"),
+            text_color=color,
+        ).pack(pady=(20, 10))
+
+        ctk.CTkLabel(
+            dialog, text=body,
+            font=ctk.CTkFont(size=12),
+            justify="center",
+            wraplength=380,
+        ).pack(pady=(0, 15))
+
+        countdown_var = ctk.StringVar(value="5")
+        ctk.CTkLabel(
+            dialog, textvariable=countdown_var,
+            font=ctk.CTkFont(size=24, weight="bold"),
+        ).pack()
+
+        progress = ctk.CTkProgressBar(dialog, width=300, progress_color="#7c3aed")
+        progress.set(1.0)
+        progress.pack(pady=(5, 15))
+
+        remaining = [5]
+        cancelled = [False]
+
+        def tick():
+            if cancelled[0]:
+                return
+            remaining[0] -= 1
+            if remaining[0] <= 0:
+                self.quit()
+                self.destroy()
+            else:
+                countdown_var.set(str(remaining[0]))
+                progress.set(remaining[0] / 5)
+                dialog.after(1000, tick)
+
+        def cancel():
+            cancelled[0] = True
+            dialog.destroy()
+
+        ctk.CTkButton(
+            dialog, text="Cancelar cierre", width=140,
+            fg_color="gray30", hover_color="gray20",
+            command=cancel,
+        ).pack(pady=(0, 15))
+
+        dialog.after(1000, tick)
+        dialog.protocol("WM_DELETE_WINDOW", cancel)
 
     def _on_create_project(self):
         """Gathers wizard data and opens the project creation modal."""
