@@ -786,6 +786,10 @@ class CreateProjectModal(ctk.CTkToplevel):
                     self._thread_safe_log(
                         "⚠ No se pudo crear el repositorio en GitHub. El proyecto local se creó correctamente."
                     )
+                else:
+                    self.master.register_created_repo(
+                        self._repo_name, project_path
+                    )
 
         except Exception as error:
             # Catch anything that escaped build_project

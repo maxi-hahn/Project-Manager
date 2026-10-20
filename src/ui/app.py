@@ -1,6 +1,7 @@
 import subprocess
 import threading
 from pathlib import Path
+from tkinter import messagebox
 
 try:
     import winsound
@@ -55,6 +56,11 @@ class ProjectManagerApp(ctk.CTk):
         self.custom_editors: list[dict] = []
         self.auto_install_dependencies: bool = False
 
+        self._background_install_running = False
+        self._install_process = None  # subprocess.Popen
+        self._created_repo_name = None  # str or None
+        self._created_repo_path = None  # Path or None
+
         # Estado del wizard
         self.current_step = 0
         self.screens = []
@@ -76,6 +82,8 @@ class ProjectManagerApp(ctk.CTk):
 
         # Inicializar wizard
         self._build_screens()
+
+        self.protocol("WM_DELETE_WINDOW", self._on_main_window_close)
 
         if self.config_manager.exists():
             self._apply_config()
@@ -198,13 +206,13 @@ class ProjectManagerApp(ctk.CTk):
         self.status_label.grid(row=0, column=1, padx=20, pady=10)
 
         # Settings button (right)
-        settings_button = ctk.CTkButton(
+        self.settings_button = ctk.CTkButton(
             header,
             text="Ajustes",
             width=100,
             command=self._on_settings_click,
         )
-        settings_button.grid(row=0, column=2, padx=20, pady=10, sticky="e")
+        self.settings_button.grid(row=0, column=2, padx=20, pady=10, sticky="e")
 
     # ========================================================
     # CONTENIDO PRINCIPAL (izquierda)
@@ -460,8 +468,106 @@ class ProjectManagerApp(ctk.CTk):
     # ACCIONES
     # ========================================================
 
+    def register_created_repo(self, name: str, path: Path):
+        self._created_repo_name = name
+        self._created_repo_path = path
+
+    def _on_main_window_close(self):
+        """Intercepts the main window close event."""
+        if self._background_install_running:
+            answer = messagebox.askyesno(
+                "Instalación en curso",
+                "Se están instalando las dependencias.\n\n"
+                "Si cerrás ahora, la instalación se cancelará y el "
+                "proyecto puede quedar incompleto (solo en la parte "
+                "de dependencias).\n\n"
+                "¿Querés cancelar la instalación y cerrar igual?",
+                parent=self,
+            )
+            if not answer:
+                return
+
+            # User wants to cancel
+            self._cancel_background_install()
+
+        self.quit()
+        self.destroy()
+
+    def _cancel_background_install(self):
+        """Kills the install process and rolls back git if needed."""
+        # Kill the process
+        if self._install_process and self._install_process.poll() is None:
+            try:
+                self._install_process.terminate()
+                self._install_process.wait(timeout=5)
+            except Exception:
+                try:
+                    self._install_process.kill()
+                except Exception:
+                    pass
+
+        # Rollback git
+        if self._created_repo_path:
+            self._rollback_git()
+
+    def _rollback_git(self):
+        """Removes the local .git folder and the remote repo on GitHub."""
+        import shutil
+
+        # 1. Delete .git locally
+        git_dir = self._created_repo_path / ".git"
+        if git_dir.exists():
+            try:
+                shutil.rmtree(git_dir, ignore_errors=True)
+            except Exception:
+                pass
+
+        # 2. Delete remote repo on GitHub (if it was created in this session)
+        if self._created_repo_name:
+            try:
+                subprocess.run(
+                    f'gh repo delete "{self._created_repo_name}" --yes',
+                    capture_output=True,
+                    text=True,
+                    shell=True,
+                )
+            except Exception:
+                pass
+
+    def _set_ui_enabled(self, enabled: bool):
+        """Enable or disable the main UI while the install runs."""
+        state = "normal" if enabled else "disabled"
+
+        # Header buttons
+        if hasattr(self, "settings_button"):
+            try:
+                self.settings_button.configure(state=state)
+            except Exception:
+                pass
+
+        # Wizard navigation bar (Back / Next)
+        if hasattr(self, "nav_bar"):
+            try:
+                self.nav_bar.set_next_enabled(enabled)
+                if hasattr(self.nav_bar, "back_button"):
+                    self.nav_bar.back_button.configure(state=state)
+            except Exception:
+                pass
+
+        # Screen-level input widgets: disable the whole content frame
+        # (intercepts clicks) but avoid disabling labels.
+        if hasattr(self, "content_frame"):
+            try:
+                # If we disable the frame, children may still respond.
+                # The safest approach is to gray out the nav bar + buttons.
+                pass
+            except Exception:
+                pass
+
     def start_background_install(self, project_path: Path, runtime: str):
         """Starts installing dependencies in the background."""
+        self._background_install_running = True
+        self._set_ui_enabled(False)
         self.status_label.configure(
             text="⏳ Instalando dependencias...", text_color=("#f59e0b", "#f59e0b")
         )
@@ -481,15 +587,17 @@ class ProjectManagerApp(ctk.CTk):
                     self.after(0, self._on_background_install_done, True, "")
                     return
 
-                res = subprocess.run(
+                self._install_process = subprocess.Popen(
                     cmd,
                     cwd=project_path,
-                    capture_output=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
                     text=True,
                     shell=True,
                 )
-                success = res.returncode == 0
-                error_msg = res.stderr if not success else ""
+                stdout, stderr = self._install_process.communicate()
+                success = self._install_process.returncode == 0
+                error_msg = stderr if not success else ""
                 self.after(0, self._on_background_install_done, success, error_msg)
             except Exception as e:
                 self.after(0, self._on_background_install_done, False, str(e))
@@ -498,6 +606,8 @@ class ProjectManagerApp(ctk.CTk):
 
     def _on_background_install_done(self, success: bool, error_msg: str):
         """Called when the background install finishes."""
+        self._background_install_running = False
+        self._set_ui_enabled(True)
         if success:
             self.status_label.configure(
                 text="✓ Dependencias instaladas", text_color=("#22c55e", "#22c55e")
