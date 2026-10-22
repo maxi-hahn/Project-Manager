@@ -12,5 +12,5 @@ jobs:
         uses: peter-evans/repository-dispatch@v3
         with:
           token: ${{ secrets.DOCS_REPO_TOKEN }}
-          repository: maxi-hahn/Project-manager-docs
+          repository: maxi-hahn/Project-Manager-Docs
           event-type: pm-release
